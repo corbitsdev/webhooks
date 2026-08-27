@@ -1,0 +1,29 @@
+{
+  "name": "@corbits/webhooks",
+  "version": "0.1.0",
+  "description": "POST /api/hooks — verify with an Interchange credential, then onTrigger mail.",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src"
+  },
+  "dependencies": {
+    "@intx/crypto": "0.3.0",
+    "@intx/db": "0.3.0",
+    "@intx/types": "0.3.0",
+    "hono": "4.11.9"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.9",
+    "typescript": "5.9.3"
+  }
+}
