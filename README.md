@@ -1,39 +1,27 @@
 # @corbits/webhooks
 
-Inbound HTTP → check the vault secret → **mail** a workflow's `onTrigger`.
+Inbound HTTP → check a **tenant-owned** vault secret → mail a **live** `onTrigger` in that same tenant.
 
-Credentials are Interchange's (`POST /credentials`). This package only adds `POST /api/hooks/:id`.
+Credentials, grants, and authz are Interchange's (`POST /credentials`, `credential:*`). This package only adds `POST /api/hooks`.
 
 ---
 
 ## 1. Workflow listens on mail
 
-The workflow must already be deployed with an `onTrigger` mail address:
-
-```ts
-onTrigger({ on: { type: "mail", to: "jimmy@localhost" } })
-```
-
-`ez push` that package. Direct mail to `jimmy@localhost` (or `run_…@domain`) should already fire it. The webhook is just verified ingress onto that same address.
+Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After `ez push` it has a live address (`run_…@domain`).
 
 ---
 
 ## 2. Create the webhook (a credential)
 
-A webhook **is** a vault credential. The secret is the signing key. `metadata.webhook` is what connects it to the trigger.
-
-Provider once (any `api_key` provider is fine):
+Setting a hook **is** creating a tenant credential. That write is already gated by `credential:*` / `create`.
 
 ```bash
 curl -X POST "$HUB/api/tenants/$TNT/providers" \
   -H "content-type: application/json" -H "cookie: $COOKIE" \
   -d '{"name":"webhooks","plugin":"api_key"}'
 # → { "id": "prv_…" }
-```
 
-Then the hook:
-
-```bash
 curl -X POST "$HUB/api/tenants/$TNT/credentials" \
   -H "content-type: application/json" -H "cookie: $COOKIE" \
   -d '{
@@ -44,54 +32,54 @@ curl -X POST "$HUB/api/tenants/$TNT/credentials" \
     "metadata": {
       "webhook": {
         "verify": "slack",
-        "to": "jimmy@localhost"
+        "workflow": "jimmy"
       }
     }
   }'
+# → { "id": "crd_…" }
 ```
-
-That is the whole connection: **`to` is the workflow `onTrigger` address.**
 
 | `metadata.webhook` | |
 |---|---|
-| `verify` | How to check the POST: `none` \| `bearer` \| `standard-webhooks` \| `slack` |
-| `to` | Mail address the workflow listens on (the usual way) |
-| `workflow` | Optional. Asset/definition name of a live deploy, if you don't want to hardcode `to` |
+| `verify` | `bearer` \| `standard-webhooks` \| `slack` (required; there is no `none`) |
+| `workflow` | Live deployment whose definition or asset name matches |
+| `to` | Live run **address in this tenant** (`run_…@domain`). Foreign addresses are ignored. |
 
-Authz is the existing `credential:*` grants. Rotate the secret with `PATCH` on that credential. No host restart.
+Org credentials only (`principalId` null). Personal creds are not ingress keys. Rotate with `PATCH` on that credential.
 
 ---
 
 ## 3. Point the sender at the hub
 
-```
-POST $HUB/api/hooks/slack
-```
-
-`:id` is the credential **name** (`slack`) or **id** (`crd_…`).
+Prefer the credential id (unguessable, unique):
 
 ```
-Slack signing secret ──► vault credential "slack"
-POST /api/hooks/slack ──► HMAC ──► mail jimmy@localhost ──► jimmy onTrigger
+POST $HUB/api/hooks/crd_…
 ```
 
-If the name isn't unique across tenants, pass `x-tenant-id` or use `crd_…`.
+Name is tenant-scoped — put the tenant in the path (or `x-tenant-id`):
 
-`verify: "slack"` also echoes Slack `url_verification` challenges (no mail).
+```
+POST $HUB/api/hooks/$TNT/slack
+```
+
+```
+HMAC with vault "slack"
+  → live jimmy run in that tenant
+  → onTrigger mail
+```
+
+`verify: "slack"` echoes Slack `url_verification` (no mail).
 
 ---
 
 ## Host (once)
 
 ```ts
-import { installWebhooks } from "@corbits/webhooks";
-
 await installWebhooks({ app, db, credentialCipher, sessionService });
 ```
 
-No hook list. New credentials with `metadata.webhook` start working on the next POST.
-
-Jimmy's Giphy / Slack *bot token* credentials are separate — those are `credentialBindings` on the workflow, not this signing secret.
+Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.
 
 ## License
 

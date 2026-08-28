@@ -1,9 +1,4 @@
-export const HOOK_VERIFY = [
-  "none",
-  "bearer",
-  "standard-webhooks",
-  "slack",
-] as const;
+export const HOOK_VERIFY = ["bearer", "standard-webhooks", "slack"] as const;
 
 export type HookVerify = (typeof HOOK_VERIFY)[number];
 

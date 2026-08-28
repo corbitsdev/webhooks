@@ -50,16 +50,13 @@ function isHookVerify(value: string): value is HookVerify {
 export function pickDestination(
   hook: { to?: string; workflow?: string; credentialName: string },
   runs: readonly LiveRun[],
-):
-  | { ok: true; to: string }
-  | { ok: false; code: "none" | "ambiguous"; candidates: string[] } {
-  if (hook.to !== undefined && hook.to !== "") {
-    return { ok: true, to: hook.to };
-  }
-
+): { ok: true; to: string } | { ok: false; code: "none" | "ambiguous" } {
+  // Only addresses from `runs` (already tenant-scoped) are eligible.
   let candidates = runs.filter((r) => r.address !== "");
 
-  if (hook.workflow !== undefined && hook.workflow !== "") {
+  if (hook.to !== undefined && hook.to !== "") {
+    candidates = candidates.filter((r) => r.address === hook.to);
+  } else if (hook.workflow !== undefined && hook.workflow !== "") {
     candidates = candidates.filter(
       (r) =>
         r.definitionName === hook.workflow || r.assetName === hook.workflow,
@@ -74,27 +71,15 @@ export function pickDestination(
       const only = named[0];
       if (only) return { ok: true, to: only.address };
     }
-    if (named.length > 1) {
-      return {
-        ok: false,
-        code: "ambiguous",
-        candidates: named.map((r) => r.address),
-      };
-    }
+    if (named.length > 1) return { ok: false, code: "ambiguous" };
   }
 
   if (candidates.length === 1) {
     const only = candidates[0];
     if (only) return { ok: true, to: only.address };
   }
-  if (candidates.length === 0) {
-    return { ok: false, code: "none", candidates: [] };
-  }
-  return {
-    ok: false,
-    code: "ambiguous",
-    candidates: candidates.map((r) => r.address),
-  };
+  if (candidates.length === 0) return { ok: false, code: "none" };
+  return { ok: false, code: "ambiguous" };
 }
 
 export async function loadWebhook(
@@ -107,6 +92,9 @@ export async function loadWebhook(
   const hooks: LoadedHook[] = [];
   for (const row of rows) {
     if (row.status !== "active") continue;
+    // Tenant-owned only — personal creds are not ingress keys.
+    if (row.principalId !== null && row.principalId !== undefined) continue;
+    if (tenantHint && row.tenantId !== tenantHint) continue;
     const meta = parseWebhookMeta(row.metadata);
     if (!meta) continue;
     const secret = await credentialCipher.decrypt(
@@ -135,6 +123,7 @@ async function findCredentials(
     id: string;
     name: string;
     tenantId: string;
+    principalId: string | null;
     secret: string;
     status: string;
     metadata: unknown;
@@ -147,17 +136,12 @@ async function findCredentials(
     return row ? [row] : [];
   }
 
-  if (tenantHint !== undefined && tenantHint !== "") {
-    const row = await db.query.credential.findFirst({
-      where: (c, { and, eq }) =>
-        and(eq(c.tenantId, tenantHint), eq(c.name, id)),
-    });
-    return row ? [row] : [];
-  }
-
-  return db.query.credential.findMany({
-    where: (c, { eq }) => eq(c.name, id),
+  // Names are tenant-scoped. No cross-tenant scan.
+  if (tenantHint === undefined || tenantHint === "") return [];
+  const row = await db.query.credential.findFirst({
+    where: (c, { and, eq }) => and(eq(c.tenantId, tenantHint), eq(c.name, id)),
   });
+  return row ? [row] : [];
 }
 
 export async function listLiveMailRuns(

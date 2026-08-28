@@ -15,22 +15,36 @@ describe("parseWebhookMeta", () => {
     expect(parseWebhookMeta(undefined)).toBeUndefined();
     expect(parseWebhookMeta({ provider: "giphy" })).toBeUndefined();
     expect(parseWebhookMeta({ webhook: { verify: "grant" } })).toBeUndefined();
+    expect(parseWebhookMeta({ webhook: { verify: "none" } })).toBeUndefined();
   });
 });
 
 describe("pickDestination", () => {
   const runs = [
     { address: "run_chat@localhost", definitionName: "chat", assetName: "chat" },
-    { address: "run_jimmy@localhost", definitionName: "jimmy", assetName: "jimmy" },
+    {
+      address: "run_jimmy@localhost",
+      definitionName: "jimmy",
+      assetName: "jimmy",
+    },
   ];
 
-  test("metadata.to wins", () => {
+  test("metadata.to must be a live run in the tenant", () => {
     expect(
       pickDestination(
-        { to: "jimmy@localhost", credentialName: "slack" },
+        { to: "run_jimmy@localhost", credentialName: "slack" },
         runs,
       ),
-    ).toEqual({ ok: true, to: "jimmy@localhost" });
+    ).toEqual({ ok: true, to: "run_jimmy@localhost" });
+  });
+
+  test("rejects a to that is not in the tenant's live runs", () => {
+    expect(
+      pickDestination(
+        { to: "run_other@localhost", credentialName: "slack" },
+        runs,
+      ),
+    ).toEqual({ ok: false, code: "none" });
   });
 
   test("metadata.workflow selects a live deployment", () => {
@@ -40,18 +54,17 @@ describe("pickDestination", () => {
   });
 
   test("credential name matches a live deployment", () => {
-    expect(
-      pickDestination({ credentialName: "jimmy" }, runs),
-    ).toEqual({ ok: true, to: "run_jimmy@localhost" });
+    expect(pickDestination({ credentialName: "jimmy" }, runs)).toEqual({
+      ok: true,
+      to: "run_jimmy@localhost",
+    });
   });
 
   test("unique live run when nothing else matches", () => {
-    expect(
-      pickDestination(
-        { credentialName: "slack" },
-        [runs[1]!],
-      ),
-    ).toEqual({ ok: true, to: "run_jimmy@localhost" });
+    expect(pickDestination({ credentialName: "slack" }, [runs[1]!])).toEqual({
+      ok: true,
+      to: "run_jimmy@localhost",
+    });
   });
 
   test("ambiguous when several deployments and no selector", () => {
@@ -64,7 +77,6 @@ describe("pickDestination", () => {
     expect(pickDestination({ credentialName: "slack" }, [])).toEqual({
       ok: false,
       code: "none",
-      candidates: [],
     });
   });
 });
