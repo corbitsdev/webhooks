@@ -19,6 +19,8 @@
   "dependencies": {
     "@intx/crypto": "0.3.0",
     "@intx/db": "0.3.0",
+    "@intx/hub-api": "0.3.0",
+    "@intx/mime": "0.3.0",
     "@intx/types": "0.3.0",
     "hono": "4.11.9"
   },

@@ -1,6 +1,8 @@
 # @corbits/webhooks
 
-Inbound HTTP → check a **tenant-owned** vault secret → mail a **live** `onTrigger` in that same tenant.
+Inbound HTTP → check a **tenant-owned** vault secret → fire a **live** `onTrigger` as that deployment's **run principal**.
+
+The signing cred is only how you got in. The workflow runs as `deriveRunPrincipalId(tenantId, runId)` — Interchange's mail-triggered grant path, not the credential owner.
 
 Credentials, grants, and authz are Interchange's (`POST /credentials`, `credential:*`). This package only adds `POST /api/hooks`.
 
@@ -76,7 +78,7 @@ HMAC with vault "slack"
 ## Host (once)
 
 ```ts
-await installWebhooks({ app, db, credentialCipher, sessionService });
+await installWebhooks({ app, db, credentialCipher, router: sidecarRouter });
 ```
 
 Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.

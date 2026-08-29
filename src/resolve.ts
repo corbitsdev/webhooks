@@ -1,5 +1,9 @@
 import type { DB } from "@intx/db";
-import { credentialAad, type CredentialCipher } from "@intx/types";
+import {
+  credentialAad,
+  isRunAddress,
+  type CredentialCipher,
+} from "@intx/types";
 
 import { HOOK_VERIFY, type HookVerify } from "./verify";
 
@@ -184,7 +188,7 @@ export async function listLiveMailRuns(
 
   const live: LiveRun[] = [];
   for (const run of anchors) {
-    if (!run.address) continue;
+    if (!run.address || !isRunAddress(run.address)) continue;
     const def = defById.get(run.definitionId);
     live.push({
       address: run.address,
