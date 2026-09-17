@@ -83,6 +83,64 @@ await installWebhooks({ app, db, credentialCipher, router: sidecarRouter });
 
 Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.
 
+---
+
+## Webhook triggers: package-owned trigger CRUD + HMAC ingress
+
+The `installWebhooks`/`POST /api/hooks` flow above resolves an inbound
+delivery against an existing Interchange **credential** and fires an
+already-live run. `mountWebhookTrigger` is a second, independent flow
+for hosts that want a package-owned trigger row instead: a
+tenant-scoped CRUD surface that mints its own HMAC secret per trigger,
+and an ingress endpoint that **launches a new provisioned deployment**
+of a workflow definition rather than routing to an already-live run.
+
+Migrations ship in the package, the same way `installWebhooks` expects
+no migration step of its own — `mountWebhookTrigger` requires the
+`webhook_trigger` schema/table to already exist:
+
+```ts
+import { applyWebhookTriggerMigrations, mountWebhookTrigger } from "@corbits/webhook";
+
+await applyWebhookTriggerMigrations(db);
+
+mountWebhookTrigger({
+  app,
+  mountPath: `${TENANT_PREFIX}/webhook-triggers`,
+  ingressPath: "/api/webhooks", // MUST be outside any tenant-resolution middleware
+  management: {
+    store: createDrizzleWebhookTriggerStore(db, credentialCipher),
+    requireGrant,
+    generateId: () => generateId("workflowRun"), // any host id scheme
+    workflowDefinitionInTenant: (tenantId, definitionId) => /* ... */,
+  },
+  ingress: {
+    store: createDrizzleWebhookTriggerStore(db, credentialCipher),
+    launch: (trigger, payload) =>
+      launchWebhookTrigger(launchDeps, trigger, payload),
+  },
+});
+```
+
+`launchWebhookTrigger`'s deps (`LaunchWebhookTriggerDeps` in
+`trigger-launch.ts`) are all host-supplied callbacks rather than
+imports from any workflow-authoring package: `resolveAssetCommitSha`,
+`prepareProvisionedDeployment`, `sendUserMessage`,
+`prepareDeployContent` (folds a definition's asset projection and
+grant requirements into a system prompt + tool-package pins),
+`afterProvision` (records the agent session), `deliverWhenRoutable`,
+and `onDeliveryError`. A host wires each to its own native
+implementation of that concern — this package only orchestrates the
+order they run in and owns the trigger row, the HMAC verification, and
+the input-template rendering.
+
+**Left behind in Workbench, not ported:** the `repo_review_lease`
+table and `RepoReviewLeaseStore` that used to live alongside the
+trigger table. That lease closes a concurrency race specific to
+Workbench's GitHub connect card (`packages/connections`'
+`startReviewingRepos`) and has nothing to do with webhook triggers as
+a concept — it stays in Workbench's own `packages/connections`.
+
 ## License
 
 LGPL-2.1
