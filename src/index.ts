@@ -6,3 +6,9 @@ export {
   type MailDeliverer,
   type RunTriggerMaterialize,
 } from "./deliver";
+export {
+  createTenantSystemSender,
+  type CreateTenantSystemSenderOpts,
+  type SystemSender,
+  type SystemSenderIdentity,
+} from "./system-sender";

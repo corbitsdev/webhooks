@@ -8,6 +8,7 @@ import {
   type HookMailRouter,
 } from "./deliver";
 import { createHookRoutes } from "./hooks";
+import { createTenantSystemSender } from "./system-sender";
 import { listLiveMailRuns, loadWebhook } from "./resolve";
 
 export type InstallWebhooksOpts = {
@@ -38,6 +39,10 @@ export async function installWebhooks(
       return row.domain;
     },
     senderLocalPart: "webhook",
+    systemSender: createTenantSystemSender({
+      db: opts.db,
+      principalKeyStore: opts.principalKeyStore,
+    }),
   });
   opts.app.route(
     "/api/hooks",
