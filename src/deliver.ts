@@ -25,6 +25,7 @@ export type HookMailRouter = {
     address: string,
     runId: string,
     stepGrants: unknown,
+    senderIdentities: unknown,
   ) => boolean;
 };
 
@@ -63,7 +64,11 @@ export function createRunTriggerDeliverer(opts: {
       if (grants.outcome !== "materialized" || grants.stepGrants === undefined) {
         throw new Error("destination is not a workflow deployment");
       }
-      if (!opts.router.sendRunGrants(address, runId, grants.stepGrants)) {
+      // A webhook trigger carries no inbound sender, so there is no sender
+      // key to co-deliver on this barrier.
+      if (
+        !opts.router.sendRunGrants(address, runId, grants.stepGrants, undefined)
+      ) {
         throw new Error("run grants not routable");
       }
 
