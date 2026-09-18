@@ -1,2 +1,8 @@
 export { installWebhooks, type InstallWebhooksOpts } from "./install";
-export type { HookMailRouter } from "./deliver";
+export {
+  createRunTriggerDeliverer,
+  type CreateRunTriggerDelivererOpts,
+  type HookMailRouter,
+  type MailDeliverer,
+  type RunTriggerMaterialize,
+} from "./deliver";

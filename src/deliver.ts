@@ -11,7 +11,12 @@ import {
 } from "@intx/types";
 
 export type MailDeliverer = {
-  to: (address: string, content: string, tenantId: string) => Promise<void>;
+  to: (
+    address: string,
+    content: string,
+    tenantId: string,
+    subject: string | undefined,
+  ) => Promise<void>;
 };
 
 export type HookMailRouter = {
@@ -29,7 +34,7 @@ export type HookMailRouter = {
   ) => boolean;
 };
 
-type Materialize = (args: {
+export type RunTriggerMaterialize = (args: {
   agentAddress: string;
   runId: string;
 }) => Promise<{
@@ -39,17 +44,23 @@ type Materialize = (args: {
   message?: string;
 }>;
 
+export type CreateRunTriggerDelivererOpts = {
+  router: HookMailRouter;
+  materialize: RunTriggerMaterialize;
+  tenantDomain: (tenantId: string) => Promise<string>;
+  /** Local part of the system sender address, e.g. "webhook" or "cron". */
+  senderLocalPart: string;
+};
+
 /**
  * Fire a live deployment as its run principal (mail-triggered grants),
  * not as the credential owner and not as a session-scoped user.
  */
-export function createRunTriggerDeliverer(opts: {
-  router: HookMailRouter;
-  materialize: Materialize;
-  tenantDomain: (tenantId: string) => Promise<string>;
-}): MailDeliverer {
+export function createRunTriggerDeliverer(
+  opts: CreateRunTriggerDelivererOpts,
+): MailDeliverer {
   return {
-    async to(address, content, tenantId) {
+    async to(address, content, tenantId, subject) {
       if (!isRunAddress(address)) {
         throw new Error("destination is not a live run address");
       }
@@ -64,7 +75,7 @@ export function createRunTriggerDeliverer(opts: {
       if (grants.outcome !== "materialized" || grants.stepGrants === undefined) {
         throw new Error("destination is not a workflow deployment");
       }
-      // A webhook trigger carries no inbound sender, so there is no sender
+      // A system trigger carries no inbound sender, so there is no sender
       // key to co-deliver on this barrier.
       if (
         !opts.router.sendRunGrants(address, runId, grants.stepGrants, undefined)
@@ -78,6 +89,8 @@ export function createRunTriggerDeliverer(opts: {
         content,
         tenantId,
         domain,
+        subject,
+        senderLocalPart: opts.senderLocalPart,
       });
       // The run is the mail's own recipient and trigger; it is also the
       // authenticated sender of its own trigger mail.
@@ -95,16 +108,18 @@ async function assembleTriggerMail(opts: {
   content: string;
   tenantId: string;
   domain: string;
+  subject: string | undefined;
+  senderLocalPart: string;
 }): Promise<{ base64: string; messageId: string }> {
   const cryptoProvider = createEd25519Crypto(await generateKeyPair());
   const messageId = `<${crypto.randomUUID()}@${opts.domain}>`;
   const headers = {
-    from: `webhook@${opts.domain}`,
+    from: `${opts.senderLocalPart}@${opts.domain}`,
     to: [opts.address],
     cc: undefined,
     date: new Date(),
     messageId,
-    subject: undefined,
+    subject: opts.subject,
     inReplyTo: undefined,
     references: undefined,
     mimeVersion: "1.0" as const,

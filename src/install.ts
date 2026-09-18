@@ -37,6 +37,7 @@ export async function installWebhooks(
       if (!row) throw new Error("tenant not found");
       return row.domain;
     },
+    senderLocalPart: "webhook",
   });
   opts.app.route(
     "/api/hooks",
