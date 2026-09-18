@@ -89,6 +89,30 @@ await installWebhooks({
 
 Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.
 
+## System sender identity
+
+A system trigger (webhook, cron) is signed by a **durable per-tenant sender**,
+not a throwaway key: one `kind: "user"` principal per tenant and local part
+(`webhook@domain`, `cron@domain`), minted on first use with its key in the
+principal key store. That address is the mail's `From`, the
+`authenticatedSender` on `routeMail`, and the `senderIdentities` entry
+co-delivered on the run's grants barrier — so the recipient verifies the
+signature against the key the hub vouches for. A throwaway key resolves to
+`unknown`/`invalid`, which the default admission policy rejects.
+
+`installWebhooks` builds it. A host wiring `createRunTriggerDeliverer`
+directly (cron) passes it too:
+
+```ts
+createRunTriggerDeliverer({
+  router,
+  materialize,
+  tenantDomain,
+  senderLocalPart: "cron",
+  systemSender: createTenantSystemSender({ db, principalKeyStore }),
+});
+```
+
 ## License
 
 LGPL-2.1
