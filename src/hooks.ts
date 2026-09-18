@@ -107,7 +107,12 @@ async function handle(
   }
 
   try {
-    await opts.deliver.to(dest.to, body === "" ? "{}" : body, loaded.tenantId);
+    await opts.deliver.to(
+      dest.to,
+      body === "" ? "{}" : body,
+      loaded.tenantId,
+      undefined,
+    );
   } catch {
     return c.json({ error: "undeliverable" }, 503);
   }
