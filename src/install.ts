@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { createGrantStore, type DB } from "@intx/db";
+import { createGrantStore, type DB, type PrincipalKeyStore } from "@intx/db";
 import { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
 import type { CredentialCipher } from "@intx/types";
 
@@ -14,6 +14,7 @@ export type InstallWebhooksOpts = {
   app: { route(path: string, handler: Hono): unknown };
   db: DB["db"];
   credentialCipher: CredentialCipher;
+  principalKeyStore: PrincipalKeyStore;
   router: HookMailRouter;
 };
 
@@ -23,6 +24,7 @@ export async function installWebhooks(
 ): Promise<void> {
   const materialize = createMailTriggeredRunGrantsMaterializer({
     db: opts.db,
+    principalKeyStore: opts.principalKeyStore,
     grantStore: createGrantStore(opts.db),
   });
   const deliver = createRunTriggerDeliverer({

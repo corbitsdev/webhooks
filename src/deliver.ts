@@ -18,6 +18,7 @@ export type HookMailRouter = {
   routeMail: (
     address: string,
     rawMessage: string,
+    authenticatedSender: string,
     messageId?: string,
   ) => boolean;
   sendRunGrants: (
@@ -73,7 +74,11 @@ export function createRunTriggerDeliverer(opts: {
         tenantId,
         domain,
       });
-      if (!opts.router.routeMail(address, raw.base64, raw.messageId)) {
+      // The run is the mail's own recipient and trigger; it is also the
+      // authenticated sender of its own trigger mail.
+      if (
+        !opts.router.routeMail(address, raw.base64, address, raw.messageId)
+      ) {
         throw new Error("run mail not routable");
       }
     },
