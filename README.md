@@ -78,7 +78,13 @@ HMAC with vault "slack"
 ## Host (once)
 
 ```ts
-await installWebhooks({ app, db, credentialCipher, router: sidecarRouter });
+await installWebhooks({
+  app,
+  db,
+  credentialCipher,
+  principalKeyStore,
+  router: sidecarRouter,
+});
 ```
 
 Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.
