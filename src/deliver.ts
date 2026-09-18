@@ -1,9 +1,6 @@
-import { createEd25519Crypto, generateKeyPair } from "@intx/crypto";
-import {
-  assembleMessage,
-  assembleSignedContent,
-  createDetachedSignatureFromProvider,
-} from "@intx/mime";
+import { createDetachedSignatureWithSigner } from "@intx/crypto";
+import { assembleMessage, assembleSignedContent } from "@intx/mime";
+import type { SystemSenderIdentity, SystemSender } from "./system-sender";
 import {
   base64Encode,
   deriveWorkflowRunId,
@@ -50,6 +47,8 @@ export type CreateRunTriggerDelivererOpts = {
   tenantDomain: (tenantId: string) => Promise<string>;
   /** Local part of the system sender address, e.g. "webhook" or "cron". */
   senderLocalPart: string;
+  /** Durable per-tenant identity the trigger mail is signed and authenticated as. */
+  systemSender: SystemSender;
 };
 
 /**
@@ -75,27 +74,34 @@ export function createRunTriggerDeliverer(
       if (grants.outcome !== "materialized" || grants.stepGrants === undefined) {
         throw new Error("destination is not a workflow deployment");
       }
-      // A system trigger carries no inbound sender, so there is no sender
-      // key to co-deliver on this barrier.
+
+      const domain = await opts.tenantDomain(tenantId);
+      const sender = await opts.systemSender.resolve({
+        tenantId,
+        domain,
+        localPart: opts.senderLocalPart,
+      });
+      // Co-deliver the system sender's durable key on the grants barrier so
+      // the recipient can verify the trigger mail against the key the hub
+      // vouches for, exactly as a person-originated trigger does.
       if (
-        !opts.router.sendRunGrants(address, runId, grants.stepGrants, undefined)
+        !opts.router.sendRunGrants(address, runId, grants.stepGrants, [
+          { address: sender.address, publicKey: sender.publicKey },
+        ])
       ) {
         throw new Error("run grants not routable");
       }
 
-      const domain = await opts.tenantDomain(tenantId);
       const raw = await assembleTriggerMail({
         address,
         content,
         tenantId,
         domain,
         subject,
-        senderLocalPart: opts.senderLocalPart,
+        sender,
       });
-      // The run is the mail's own recipient and trigger; it is also the
-      // authenticated sender of its own trigger mail.
       if (
-        !opts.router.routeMail(address, raw.base64, address, raw.messageId)
+        !opts.router.routeMail(address, raw.base64, sender.address, raw.messageId)
       ) {
         throw new Error("run mail not routable");
       }
@@ -109,12 +115,11 @@ async function assembleTriggerMail(opts: {
   tenantId: string;
   domain: string;
   subject: string | undefined;
-  senderLocalPart: string;
+  sender: SystemSenderIdentity;
 }): Promise<{ base64: string; messageId: string }> {
-  const cryptoProvider = createEd25519Crypto(await generateKeyPair());
   const messageId = `<${crypto.randomUUID()}@${opts.domain}>`;
   const headers = {
-    from: `${opts.senderLocalPart}@${opts.domain}`,
+    from: opts.sender.address,
     to: [opts.address],
     cc: undefined,
     date: new Date(),
@@ -137,9 +142,9 @@ async function assembleTriggerMail(opts: {
     kind: "conversation",
     text: opts.content,
   });
-  const signature = await createDetachedSignatureFromProvider(
+  const signature = await createDetachedSignatureWithSigner(
     signedContent,
-    cryptoProvider,
+    (input) => opts.sender.sign(input),
   );
   const rawMessage = assembleMessage(headers, signedContent, signature);
   return { base64: base64Encode(rawMessage), messageId };
