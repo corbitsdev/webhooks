@@ -51,6 +51,54 @@ export type CreateRunTriggerDelivererOpts = {
   systemSender: SystemSender;
 };
 
+/** `code` carried by a {@link RunTriggerUnroutableError}. */
+export const RUN_GRANTS_NOT_ROUTABLE = "run_grants_not_routable";
+export const RUN_MAIL_NOT_ROUTABLE = "run_mail_not_routable";
+
+export type RunTriggerUnroutableCode =
+  | typeof RUN_GRANTS_NOT_ROUTABLE
+  | typeof RUN_MAIL_NOT_ROUTABLE;
+
+/**
+ * A system trigger the sidecar router could not route: the deployment address
+ * has no live socket and no disconnect queue (its sidecar is gone — e.g. a
+ * stale `running` anchor left by a previous stack). Carries the address and
+ * run id so the caller can report a real failure and settle the dead run
+ * instead of logging a bare "not routable" every tick. The message keeps the
+ * legacy `run grants not routable` / `run mail not routable` prefix.
+ */
+export class RunTriggerUnroutableError extends Error {
+  readonly code: RunTriggerUnroutableCode;
+  readonly address: string;
+  readonly runId: string;
+
+  constructor(code: RunTriggerUnroutableCode, address: string, runId: string) {
+    super(
+      `${code === RUN_GRANTS_NOT_ROUTABLE ? "run grants" : "run mail"} not routable for ${address} (run ${runId})`,
+    );
+    this.name = "RunTriggerUnroutableError";
+    this.code = code;
+    this.address = address;
+    this.runId = runId;
+  }
+}
+
+/**
+ * Structural match for a {@link RunTriggerUnroutableError}. Structural — not
+ * `instanceof` — so callers that stay dependency-free (e.g. `@corbits/cron`,
+ * which speaks to this deliverer through the `MailDeliverer` shape alone)
+ * can match the same contract without importing this package.
+ */
+export function isRunTriggerUnroutable(error: unknown): error is RunTriggerUnroutableError {
+  if (typeof error !== "object" || error === null) return false;
+  const rec = error as Record<string, unknown>;
+  return (
+    (rec["code"] === RUN_GRANTS_NOT_ROUTABLE || rec["code"] === RUN_MAIL_NOT_ROUTABLE) &&
+    typeof rec["address"] === "string" &&
+    typeof rec["runId"] === "string"
+  );
+}
+
 /**
  * Fire a live deployment as its run principal (mail-triggered grants),
  * not as the credential owner and not as a session-scoped user.
@@ -89,7 +137,7 @@ export function createRunTriggerDeliverer(
           { address: sender.address, publicKey: sender.publicKey },
         ])
       ) {
-        throw new Error("run grants not routable");
+        throw new RunTriggerUnroutableError(RUN_GRANTS_NOT_ROUTABLE, address, runId);
       }
 
       const raw = await assembleTriggerMail({
@@ -103,7 +151,7 @@ export function createRunTriggerDeliverer(
       if (
         !opts.router.routeMail(address, raw.base64, sender.address, raw.messageId)
       ) {
-        throw new Error("run mail not routable");
+        throw new RunTriggerUnroutableError(RUN_MAIL_NOT_ROUTABLE, address, runId);
       }
     },
   };
