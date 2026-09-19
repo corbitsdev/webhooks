@@ -113,6 +113,18 @@ createRunTriggerDeliverer({
 });
 ```
 
+## Unroutable run triggers
+
+When the deployment address has no live socket and no disconnect queue —
+its sidecar is gone — the deliverer rejects with a
+`RunTriggerUnroutableError` (`code` `run_grants_not_routable` /
+`run_mail_not_routable`) carrying the dead run's `address` and `runId`
+instead of a bare string, so the caller can report a real failure naming
+the run and settle it. Match it structurally with
+`isRunTriggerUnroutable(error)` — not `instanceof` — so dependency-free
+callers (e.g. `@corbits/cron`, which speaks to the deliverer through the
+`MailDeliverer` shape alone) match the same contract.
+
 ## License
 
 LGPL-2.1
