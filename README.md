@@ -2,7 +2,11 @@
 
 Inbound HTTP → check a tenant-owned vault secret → fire a live `onTrigger` as that deployment's run principal. The signing cred is only how you got in. The workflow runs as `deriveRunPrincipalId(tenantId, runId)` — Interchange's mail-triggered grant path, not the credential owner. Credentials stay Interchange's (`POST /credentials`, `credential:*`); this package adds `POST /api/hooks`.
 
-## Install
+## Runtime support
+
+`package.json` does not declare `engines`. The published export is TypeScript source (`./src/index.ts`); Bun consumes it directly. Native Node does not load this extensionless TypeScript source as-is.
+
+## Quickstart
 
 ```sh
 npm add @corbits/webhooks
@@ -10,8 +14,6 @@ pnpm add @corbits/webhooks
 yarn add @corbits/webhooks
 bun add @corbits/webhooks
 ```
-
-## Use
 
 Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After `ez push` it has a live address (`run_…@domain`). Setting a hook is creating a tenant org credential (`principalId` null):
 
@@ -26,7 +28,7 @@ curl -X POST "$HUB/api/tenants/$TNT/credentials" \
     "name": "slack",
     "providerId": "prv_…",
     "type": "api_key",
-    "secret": "<vault secret>",
+    "secret": "[redacted: looks like a credential]",
     "metadata": {
       "webhook": {
         "verify": "slack",
@@ -51,8 +53,6 @@ POST $HUB/api/hooks/$TNT/slack
 ```
 
 `verify: "slack"` echoes Slack `url_verification` (no mail).
-
-## Full example
 
 ```ts
 import {
@@ -94,9 +94,11 @@ Jimmy's Giphy / Slack bot token are separate `credentialBindings` — not this s
 
 `installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` — not `instanceof` — so callers that only speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
 
-## Contributing
+## Development
 
 ```sh
+git clone https://github.com/corbitsdev/webhooks.git
+cd webhooks
 bun install
 bun run typecheck
 bun run test
