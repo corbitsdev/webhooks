@@ -1,28 +1,24 @@
 # @corbits/webhooks
 
-Inbound HTTP → check a **tenant-owned** vault secret → fire a **live** `onTrigger` as that deployment's **run principal**.
+Inbound HTTP → check a tenant-owned vault secret → fire a live `onTrigger` as that deployment's run principal. The signing cred is only how you got in. The workflow runs as `deriveRunPrincipalId(tenantId, runId)` — Interchange's mail-triggered grant path, not the credential owner. Credentials stay Interchange's (`POST /credentials`, `credential:*`); this package adds `POST /api/hooks`.
 
-The signing cred is only how you got in. The workflow runs as `deriveRunPrincipalId(tenantId, runId)` — Interchange's mail-triggered grant path, not the credential owner.
+## Install
 
-Credentials, grants, and authz are Interchange's (`POST /credentials`, `credential:*`). This package only adds `POST /api/hooks`.
+```sh
+npm add @corbits/webhooks
+pnpm add @corbits/webhooks
+yarn add @corbits/webhooks
+bun add @corbits/webhooks
+```
 
----
+## Use
 
-## 1. Workflow listens on mail
-
-Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After `ez push` it has a live address (`run_…@domain`).
-
----
-
-## 2. Create the webhook (a credential)
-
-Setting a hook **is** creating a tenant credential. That write is already gated by `credential:*` / `create`.
+Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After `ez push` it has a live address (`run_…@domain`). Setting a hook is creating a tenant org credential (`principalId` null):
 
 ```bash
 curl -X POST "$HUB/api/tenants/$TNT/providers" \
   -H "content-type: application/json" -H "cookie: $COOKIE" \
   -d '{"name":"webhooks","plugin":"api_key"}'
-# → { "id": "prv_…" }
 
 curl -X POST "$HUB/api/tenants/$TNT/credentials" \
   -H "content-type: application/json" -H "cookie: $COOKIE" \
@@ -30,7 +26,7 @@ curl -X POST "$HUB/api/tenants/$TNT/credentials" \
     "name": "slack",
     "providerId": "prv_…",
     "type": "api_key",
-    "secret": "YOUR_SIGNING_SECRET",
+    "secret": "<vault secret>",
     "metadata": {
       "webhook": {
         "verify": "slack",
@@ -38,46 +34,34 @@ curl -X POST "$HUB/api/tenants/$TNT/credentials" \
       }
     }
   }'
-# → { "id": "crd_…" }
 ```
 
-| `metadata.webhook` | |
-|---|---|
-| `verify` | `bearer` \| `standard-webhooks` \| `slack` (required; there is no `none`) |
-| `workflow` | Live deployment whose definition or asset name matches |
-| `to` | Live run **address in this tenant** (`run_…@domain`). Foreign addresses are ignored. |
+`metadata.webhook.verify` is `bearer` | `standard-webhooks` | `slack` (required; there is no `none`). `workflow` is a live deployment whose definition or asset name matches; `to` is a live run address in this tenant.
 
-Org credentials only (`principalId` null). Personal creds are not ingress keys. Rotate with `PATCH` on that credential.
-
----
-
-## 3. Point the sender at the hub
-
-Prefer the credential id (unguessable, unique):
+Prefer the credential id:
 
 ```
 POST $HUB/api/hooks/crd_…
 ```
 
-Name is tenant-scoped — put the tenant in the path (or `x-tenant-id`):
+Name is tenant-scoped:
 
 ```
 POST $HUB/api/hooks/$TNT/slack
 ```
 
-```
-HMAC with vault "slack"
-  → live jimmy run in that tenant
-  → onTrigger mail
-```
-
 `verify: "slack"` echoes Slack `url_verification` (no mail).
 
----
-
-## Host (once)
+## Full example
 
 ```ts
+import {
+  createRunTriggerDeliverer,
+  createTenantSystemSender,
+  installWebhooks,
+  isRunTriggerUnroutable,
+} from "@corbits/webhooks";
+
 await installWebhooks({
   app,
   db,
@@ -85,46 +69,41 @@ await installWebhooks({
   principalKeyStore,
   router: sidecarRouter,
 });
-```
 
-Jimmy's Giphy / Slack *bot token* are separate `credentialBindings` — not this signing secret.
-
-## System sender identity
-
-A system trigger (webhook, cron) is signed by a **durable per-tenant sender**,
-not a throwaway key: one `kind: "user"` principal per tenant and local part
-(`webhook@domain`, `cron@domain`), minted on first use with its key in the
-principal key store. That address is the mail's `From`, the
-`authenticatedSender` on `routeMail`, and the `senderIdentities` entry
-co-delivered on the run's grants barrier — so the recipient verifies the
-signature against the key the hub vouches for. A throwaway key resolves to
-`unknown`/`invalid`, which the default admission policy rejects.
-
-`installWebhooks` builds it. A host wiring `createRunTriggerDeliverer`
-directly (cron) passes it too:
-
-```ts
-createRunTriggerDeliverer({
+const deliver = createRunTriggerDeliverer({
   router,
   materialize,
   tenantDomain,
   senderLocalPart: "cron",
   systemSender: createTenantSystemSender({ db, principalKeyStore }),
 });
+
+try {
+  await deliver.to(address, body, tenantId, subject);
+} catch (error) {
+  if (isRunTriggerUnroutable(error)) {
+    console.error(error.code, error.address, error.runId);
+  }
+  throw error;
+}
 ```
 
-## Unroutable run triggers
+Jimmy's Giphy / Slack bot token are separate `credentialBindings` — not this signing secret.
 
-When the deployment address has no live socket and no disconnect queue —
-its sidecar is gone — the deliverer rejects with a
-`RunTriggerUnroutableError` (`code` `run_grants_not_routable` /
-`run_mail_not_routable`) carrying the dead run's `address` and `runId`
-instead of a bare string, so the caller can report a real failure naming
-the run and settle it. Match it structurally with
-`isRunTriggerUnroutable(error)` — not `instanceof` — so dependency-free
-callers (e.g. `@corbits/cron`, which speaks to the deliverer through the
-`MailDeliverer` shape alone) match the same contract.
+## How it works
+
+`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` — not `instanceof` — so callers that only speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+
+## Contributing
+
+```sh
+bun install
+bun run typecheck
+bun run test
+```
+
+`bun run test` is `bun test ./src`.
 
 ## License
 
-LGPL-2.1
+LGPL-2.1-only.
