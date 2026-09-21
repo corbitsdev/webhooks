@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPair, signEd25519, verifyEd25519 } from "@intx/crypto";
 import { hexEncode } from "@intx/types";
 
-import { createRunTriggerDeliverer } from "./deliver";
+import { createRunTriggerDeliverer, isRunTriggerUnroutable } from "./deliver";
+import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver";
 import type { SystemSender } from "./system-sender";
 
 const ADDRESS = "run_0123456789abcdef@localhost";
@@ -150,5 +151,48 @@ describe("createRunTriggerDeliverer", () => {
         undefined,
       ),
     ).rejects.toThrow("not a live run address");
+  });
+
+  test("a dead run address fails with its run identity, not a bare string", async () => {
+    const sender = await durableSystemSender();
+    const recorded = recordingRouter();
+    recorded.router.sendRunGrants = () => false;
+    const error = await deliverer(recorded.router, sender.sender)
+      .to(ADDRESS, "tick", "tnt_1", undefined)
+      .then(
+        () => {
+          throw new Error("the dead run delivered");
+        },
+        (e: unknown) => e,
+      );
+
+    expect(isRunTriggerUnroutable(error)).toBe(true);
+    expect((error as { code: string }).code).toBe(RUN_GRANTS_NOT_ROUTABLE);
+    expect((error as { address: string }).address).toBe(ADDRESS);
+    expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
+    expect(String((error as Error).message)).toContain("run grants not routable");
+    // The grants barrier never went out, so no mail follows it.
+    expect(recorded.mail).toEqual([]);
+  });
+
+  test("unroutable mail after delivered grants names the run too", async () => {
+    const sender = await durableSystemSender();
+    const recorded = recordingRouter();
+    recorded.router.routeMail = () => false;
+    const error = await deliverer(recorded.router, sender.sender)
+      .to(ADDRESS, "tick", "tnt_1", undefined)
+      .then(
+        () => {
+          throw new Error("the dead run delivered");
+        },
+        (e: unknown) => e,
+      );
+
+    expect(isRunTriggerUnroutable(error)).toBe(true);
+    expect((error as { code: string }).code).toBe(RUN_MAIL_NOT_ROUTABLE);
+    expect((error as { address: string }).address).toBe(ADDRESS);
+    expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
+    // The grants barrier went out before the mail leg failed.
+    expect(recorded.grants).toHaveLength(1);
   });
 });
