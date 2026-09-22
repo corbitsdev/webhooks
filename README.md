@@ -15,7 +15,7 @@ yarn add @corbits/webhooks
 bun add @corbits/webhooks
 ```
 
-Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After `ez push` it has a live address (`run_…@domain`). Setting a hook is creating a tenant org credential (`principalId` null):
+Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After deploy it has a live address (`run_…@domain`). Setting a hook is creating a tenant org credential (`principalId` null):
 
 ```bash
 curl -X POST "$HUB/api/tenants/$TNT/providers" \
@@ -88,11 +88,11 @@ try {
 }
 ```
 
-Jimmy's Giphy / Slack bot token are separate `credentialBindings` — not this signing secret.
+Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
 
 ## How it works
 
-`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` — not `instanceof` — so callers that only speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
 
 ## Development
 
