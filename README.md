@@ -60,7 +60,25 @@ import {
   createTenantSystemSender,
   installWebhooks,
   isRunTriggerUnroutable,
+  type CreateRunTriggerDelivererOpts,
+  type HookMailRouter,
+  type InstallWebhooksOpts,
 } from "@corbits/webhooks";
+
+// Host-owned: the hub's app, drizzle handle, credential cipher, key store,
+// sidecar mail router, grant materializer, tenant-domain lookup, and the
+// live trigger target (address/body/tenantId/subject).
+declare const app: InstallWebhooksOpts["app"];
+declare const db: InstallWebhooksOpts["db"];
+declare const credentialCipher: InstallWebhooksOpts["credentialCipher"];
+declare const principalKeyStore: InstallWebhooksOpts["principalKeyStore"];
+declare const sidecarRouter: HookMailRouter;
+declare const materialize: CreateRunTriggerDelivererOpts["materialize"];
+declare const tenantDomain: CreateRunTriggerDelivererOpts["tenantDomain"];
+declare const address: string;
+declare const body: string;
+declare const tenantId: string;
+declare const subject: string | undefined;
 
 await installWebhooks({
   app,
@@ -71,10 +89,10 @@ await installWebhooks({
 });
 
 const deliver = createRunTriggerDeliverer({
-  router,
+  router: sidecarRouter,
   materialize,
   tenantDomain,
-  senderLocalPart: "cron",
+  senderLocalPart: "webhook",
   systemSender: createTenantSystemSender({ db, principalKeyStore }),
 });
 
