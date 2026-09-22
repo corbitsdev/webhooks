@@ -15,76 +15,40 @@ yarn add @corbits/webhooks
 bun add @corbits/webhooks
 ```
 
-The program below is complete: it opens a handle with `createDB`, mounts `POST /api/hooks` on a fresh Hono app, and fires a demo trigger through the same deliverer a hook uses. No sidecar is connected here, so the demo trigger reports unroutable — the `catch` shows how a host matches that case.
+`installWebhooks(opts)` mounts `POST /api/hooks` directly on the host app. Every field of `opts` is a host responsibility — the same four a hub already has on hand from its own boot sequence (a drizzle handle, its credential cipher, its principal key store, and its mail router):
+
+| `opts` | Type | What the host provides |
+| --- | --- | --- |
+| `app` | `{ route(path, handler): unknown }` | Any Hono app; `installWebhooks` mounts `/api/hooks` on it. |
+| `db` | `DB["db"]` (from `@intx/db`) | The host's existing drizzle handle. |
+| `credentialCipher` | `CredentialCipher` (from `@intx/types`) | Decrypts the vault secret a hook's credential carries. |
+| `principalKeyStore` | `PrincipalKeyStore` (from `@intx/db`) | Signs the trigger mail as the run's own principal. |
+| `router` | `HookMailRouter` | Delivers the trigger mail once a hook fires. A hub backs this with its live sidecar router. |
+
+The function below compiles against this package's real entry point, with every host-owned dependency passed in by its own published type — no in-process store standing in for a hub's database, cipher, key store, or router:
 
 ```ts
-import { createNoopCredentialCipher } from "@intx/crypto";
-import { createDB } from "@intx/db";
-import { Hono } from "hono";
-import {
-  createRunTriggerDeliverer,
-  createTenantSystemSender,
-  installWebhooks,
-  isRunTriggerUnroutable,
-  type HookMailRouter,
-} from "@corbits/webhooks";
+import type { Hono } from "hono";
+import type { DB, PrincipalKeyStore } from "@intx/db";
+import type { CredentialCipher } from "@intx/types";
+import { installWebhooks, type HookMailRouter } from "@corbits/webhooks";
 
-// Stubbed connection: this program is typechecked, never run, against it.
-const { db } = createDB({
-  host: "localhost",
-  port: 5432,
-  user: "postgres",
-  password: "postgres",
-  database: "webhooks",
-  schema: "webhooks",
-});
-
-// No sidecar is connected here, so both router hooks decline delivery.
-const sidecarRouter: HookMailRouter = {
-  routeMail: () => false,
-  sendRunGrants: () => false,
-};
-
-// The two-method key shape this package calls. A real hub backs it with
-// its principal keys.
-const principalKeyStore = {
-  getPublicKey: async (): Promise<string> => "00",
-  sign: async (_principalId: string, input: Uint8Array): Promise<Uint8Array> =>
-    input,
-};
-
-const app = new Hono();
-await installWebhooks({
-  app,
-  db,
-  credentialCipher: createNoopCredentialCipher(),
-  principalKeyStore,
-  router: sidecarRouter,
-});
-
-const deliver = createRunTriggerDeliverer({
-  router: sidecarRouter,
-  materialize: async () => ({ outcome: "materialized", stepGrants: {} }),
-  tenantDomain: async () => "example",
-  senderLocalPart: "webhook",
-  systemSender: createTenantSystemSender({ db, principalKeyStore }),
-});
-
-try {
-  await deliver.to("run_demo@example", "hello from a hook", "demo", undefined);
-} catch (error) {
-  if (isRunTriggerUnroutable(error)) {
-    console.error(error.code, error.address, error.runId);
-  }
-  throw error;
+export async function mountWebhooks(
+  app: Hono,
+  db: DB["db"],
+  credentialCipher: CredentialCipher,
+  principalKeyStore: PrincipalKeyStore,
+  router: HookMailRouter,
+): Promise<void> {
+  await installWebhooks({ app, db, credentialCipher, principalKeyStore, router });
 }
-
-export default app;
 ```
 
-The inline `principalKeyStore` implements exactly the two methods this package calls (`getPublicKey`/`sign`). `createNoopCredentialCipher` is the local-development cipher — production uses an env-key cipher. The inline router declines everything because there is no sidecar; a real hub wires its own mail router in its place.
-
 Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
+
+### Lower-level: `createRunTriggerDeliverer` and `createTenantSystemSender`
+
+`installWebhooks` builds its own deliverer internally from these two exports; a host reaches for them directly only when it is driving trigger mail outside a hook — for example `@corbits/cron`'s ticker points a due schedule at the very same `createRunTriggerDeliverer`, given a `HookMailRouter` and a `PrincipalKeyStore`, so cron and webhooks fire through one system-trigger path. `createTenantSystemSender({ db, principalKeyStore })` gives that deliverer a durable per-tenant identity (`<senderLocalPart>@domain`) the trigger mail is signed and authenticated as. Match a delivery that couldn't route with `isRunTriggerUnroutable(error)`, which narrows to `{ code, address, runId }` — `code` is `RUN_GRANTS_NOT_ROUTABLE` or `RUN_MAIL_NOT_ROUTABLE`.
 
 ## How it works
 
