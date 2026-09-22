@@ -15,7 +15,82 @@ yarn add @corbits/webhooks
 bun add @corbits/webhooks
 ```
 
-Deploy a workflow with `onTrigger({ on: { type: "mail", to } })`. After deploy it has a live address (`run_…@domain`). Setting a hook is creating a tenant org credential (`principalId` null):
+The program below is complete: it opens a handle with `createDB`, mounts `POST /api/hooks` on a fresh Hono app, and fires a demo trigger through the same deliverer a hook uses. No sidecar is connected here, so the demo trigger reports unroutable — the `catch` shows how a host matches that case.
+
+```ts
+import { createNoopCredentialCipher } from "@intx/crypto";
+import { createDB } from "@intx/db";
+import { Hono } from "hono";
+import {
+  createRunTriggerDeliverer,
+  createTenantSystemSender,
+  installWebhooks,
+  isRunTriggerUnroutable,
+  type HookMailRouter,
+} from "@corbits/webhooks";
+
+// Stubbed connection: this program is typechecked, never run, against it.
+const { db } = createDB({
+  host: "localhost",
+  port: 5432,
+  user: "postgres",
+  password: "postgres",
+  database: "webhooks",
+  schema: "webhooks",
+});
+
+// No sidecar is connected here, so both router hooks decline delivery.
+const sidecarRouter: HookMailRouter = {
+  routeMail: () => false,
+  sendRunGrants: () => false,
+};
+
+// The two-method key shape this package calls. A real hub backs it with
+// its principal keys.
+const principalKeyStore = {
+  getPublicKey: async (): Promise<string> => "00",
+  sign: async (_principalId: string, input: Uint8Array): Promise<Uint8Array> =>
+    input,
+};
+
+const app = new Hono();
+await installWebhooks({
+  app,
+  db,
+  credentialCipher: createNoopCredentialCipher(),
+  principalKeyStore,
+  router: sidecarRouter,
+});
+
+const deliver = createRunTriggerDeliverer({
+  router: sidecarRouter,
+  materialize: async () => ({ outcome: "materialized", stepGrants: {} }),
+  tenantDomain: async () => "example",
+  senderLocalPart: "webhook",
+  systemSender: createTenantSystemSender({ db, principalKeyStore }),
+});
+
+try {
+  await deliver.to("run_demo@example", "hello from a hook", "demo", undefined);
+} catch (error) {
+  if (isRunTriggerUnroutable(error)) {
+    console.error(error.code, error.address, error.runId);
+  }
+  throw error;
+}
+
+export default app;
+```
+
+The inline `principalKeyStore` implements exactly the two methods this package calls (`getPublicKey`/`sign`). `createNoopCredentialCipher` is the local-development cipher — production uses an env-key cipher. The inline router declines everything because there is no sidecar; a real hub wires its own mail router in its place.
+
+Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
+
+## How it works
+
+`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+
+Setting a hook is creating a tenant org credential (`principalId` null) on a workflow deployed with `onTrigger({ on: { type: "mail", to } })`. After deploy it has a live address (`run_…@domain`):
 
 ```bash
 curl -X POST "$HUB/api/tenants/$TNT/providers" \
@@ -38,79 +113,7 @@ curl -X POST "$HUB/api/tenants/$TNT/credentials" \
   }'
 ```
 
-`metadata.webhook.verify` is `bearer` | `standard-webhooks` | `slack` (required; there is no `none`). `workflow` is a live deployment whose definition or asset name matches; `to` is a live run address in this tenant.
-
-Prefer the credential id:
-
-```
-POST $HUB/api/hooks/crd_…
-```
-
-Name is tenant-scoped:
-
-```
-POST $HUB/api/hooks/$TNT/slack
-```
-
-`verify: "slack"` echoes Slack `url_verification` (no mail).
-
-```ts
-import {
-  createRunTriggerDeliverer,
-  createTenantSystemSender,
-  installWebhooks,
-  isRunTriggerUnroutable,
-  type CreateRunTriggerDelivererOpts,
-  type HookMailRouter,
-  type InstallWebhooksOpts,
-} from "@corbits/webhooks";
-
-// Host-owned: the hub's app, drizzle handle, credential cipher, key store,
-// sidecar mail router, grant materializer, tenant-domain lookup, and the
-// live trigger target (address/body/tenantId/subject).
-declare const app: InstallWebhooksOpts["app"];
-declare const db: InstallWebhooksOpts["db"];
-declare const credentialCipher: InstallWebhooksOpts["credentialCipher"];
-declare const principalKeyStore: InstallWebhooksOpts["principalKeyStore"];
-declare const sidecarRouter: HookMailRouter;
-declare const materialize: CreateRunTriggerDelivererOpts["materialize"];
-declare const tenantDomain: CreateRunTriggerDelivererOpts["tenantDomain"];
-declare const address: string;
-declare const body: string;
-declare const tenantId: string;
-declare const subject: string | undefined;
-
-await installWebhooks({
-  app,
-  db,
-  credentialCipher,
-  principalKeyStore,
-  router: sidecarRouter,
-});
-
-const deliver = createRunTriggerDeliverer({
-  router: sidecarRouter,
-  materialize,
-  tenantDomain,
-  senderLocalPart: "webhook",
-  systemSender: createTenantSystemSender({ db, principalKeyStore }),
-});
-
-try {
-  await deliver.to(address, body, tenantId, subject);
-} catch (error) {
-  if (isRunTriggerUnroutable(error)) {
-    console.error(error.code, error.address, error.runId);
-  }
-  throw error;
-}
-```
-
-Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
-
-## How it works
-
-`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+`metadata.webhook.verify` is `bearer` | `standard-webhooks` | `slack` (required; there is no `none`). `workflow` is a live deployment whose definition or asset name matches; `to` is a live run address in this tenant. Prefer the credential id (`POST $HUB/api/hooks/crd_…`); the name form is tenant-scoped (`POST $HUB/api/hooks/$TNT/slack`). `verify: "slack"` echoes Slack `url_verification` (no mail).
 
 ## Development
 
