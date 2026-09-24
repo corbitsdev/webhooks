@@ -4,7 +4,7 @@ Inbound HTTP → check a tenant-owned vault secret → fire a live `onTrigger` a
 
 ## Runtime support
 
-`package.json` does not declare `engines`. The published export is TypeScript source (`./src/index.ts`); Bun consumes it directly. Native Node does not load this extensionless TypeScript source as-is.
+`package.json` does not declare `engines`. The published entry point is compiled output (`./dist/index.js` with types at `./dist/index.d.ts`); both Bun and native Node consume it directly.
 
 ## Quickstart
 

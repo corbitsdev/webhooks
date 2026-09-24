@@ -13,9 +13,10 @@
     "url": "https://github.com/corbitsdev/webhooks/issues"
   },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "intx-src": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }

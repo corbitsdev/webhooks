@@ -3,6 +3,9 @@
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "composite": false,
     "outDir": "dist",
     "rootDir": "src",
     "allowImportingTsExtensions": false,
