@@ -1,13 +1,13 @@
 import { Hono, type Context } from "hono";
 
-import type { MailDeliverer } from "./deliver";
-import type { LoadedHook, LiveRun } from "./resolve";
-import { pickDestination } from "./resolve";
+import type { MailDeliverer } from "./deliver.js";
+import type { LoadedHook, LiveRun } from "./resolve.js";
+import { pickDestination } from "./resolve.js";
 import {
   verifyBearer,
   verifySlack,
   verifyStandardWebhooks,
-} from "./verify";
+} from "./verify.js";
 
 export type LoadHook = (
   id: string,

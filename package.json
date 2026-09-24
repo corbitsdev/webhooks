@@ -3,17 +3,36 @@
   "version": "0.1.2",
   "description": "POST /api/hooks — verify with an Interchange credential, then onTrigger mail.",
   "license": "LGPL-2.1-only",
+  "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
+  "homepage": "https://github.com/corbitsdev/webhooks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corbitsdev/webhooks.git"
+  },
+  "bugs": {
+    "url": "https://github.com/corbitsdev/webhooks/issues"
+  },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "intx-src": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
     "LICENSE"
   ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "bun test ./src"
   },
   "dependencies": {

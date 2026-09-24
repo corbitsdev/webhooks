@@ -5,7 +5,7 @@ import {
   type CredentialCipher,
 } from "@intx/types";
 
-import { HOOK_VERIFY, type HookVerify } from "./verify";
+import { HOOK_VERIFY, type HookVerify } from "./verify.js";
 
 export type WebhookMeta = {
   verify: HookVerify;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseWebhookMeta, pickDestination } from "./resolve";
+import { parseWebhookMeta, pickDestination } from "./resolve.js";
 
 describe("parseWebhookMeta", () => {
   test("reads nested webhook metadata", () => {

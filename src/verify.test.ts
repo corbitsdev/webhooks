@@ -4,7 +4,7 @@ import {
   verifyBearer,
   verifySlack,
   verifyStandardWebhooks,
-} from "./verify";
+} from "./verify.js";
 
 describe("verifyStandardWebhooks", () => {
   test("accepts a valid v1 signature", async () => {

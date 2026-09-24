@@ -1,6 +1,6 @@
 import { createDetachedSignatureWithSigner } from "@intx/crypto";
 import { assembleMessage, assembleSignedContent } from "@intx/mime";
-import type { SystemSenderIdentity, SystemSender } from "./system-sender";
+import type { SystemSenderIdentity, SystemSender } from "./system-sender.js";
 import {
   base64Encode,
   deriveWorkflowRunId,
