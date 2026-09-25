@@ -1,6 +1,6 @@
 {
   "name": "@corbits/webhooks",
-  "version": "0.1.2",
+  "version": "0.1.0",
   "description": "POST /api/hooks — verify with an Interchange credential, then onTrigger mail.",
   "license": "LGPL-2.1-only",
   "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
