@@ -1,51 +1,100 @@
 # @corbits/webhooks
 
-Inbound HTTP → check a tenant-owned vault secret → fire a live `onTrigger` as that deployment's run principal. The signing cred is only how you got in. The workflow runs as `deriveRunPrincipalId(tenantId, runId)` — Interchange's mail-triggered grant path, not the credential owner. Credentials stay Interchange's (`POST /credentials`, `credential:*`); this package adds `POST /api/hooks`.
+[![npm](https://img.shields.io/npm/v/@corbits/webhooks.svg)](https://www.npmjs.com/package/@corbits/webhooks) [![License: LGPL-2.1](https://img.shields.io/badge/license-LGPL--2.1-green.svg)](https://github.com/corbitsdev/webhooks/blob/main/LICENSE)
 
-## Runtime support
+Signed webhook ingress for Interchange workflows: verifies a Slack, Standard Webhooks or bearer request against a hub credential, then delivers the body as trigger mail to a live workflow run. A Corbits hub module, mounted as Hono routes on the Interchange hub (Interchange's multi-tenant control plane, where a principal is an identity and a grant is a permission it holds) and backed by its Postgres.
 
-`package.json` does not declare `engines`. The published entry point is compiled output (`./dist/index.js` with types at `./dist/index.d.ts`); both Bun and native Node consume it directly.
+## Why @corbits/webhooks?
+
+1. **Secrets stay in the hub.** Each hook is an ordinary Interchange credential with `metadata.webhook`; this package stores nothing of its own.
+2. **Runs never borrow a person's authority.** The workflow runs as its own run principal (the identity Interchange derives for each run) through the hub's mail-triggered grant path, never as the credential owner.
+3. **Three verifiers, no unsigned mode.** Slack signatures, Standard Webhooks HMAC and bearer tokens. A credential without a verifier matches no hook.
+
+Use it to start workflows from third-party events. It does not fire on a schedule; `@corbits/cron` does, through a deliverer of the same shape.
+
+## Install
+
+```bash
+npm add @corbits/webhooks \
+  @intx/crypto @intx/db @intx/hub-api @intx/hub-common @intx/mime @intx/types hono
+```
+
+The `@intx/*` peers are `^0.4.0`; `hono` is `^4.11.9`.
 
 ## Quickstart
 
-```sh
-npm add @corbits/webhooks
-pnpm add @corbits/webhooks
-yarn add @corbits/webhooks
-bun add @corbits/webhooks
-```
-
-The host provides the peers: `@intx/crypto`, `@intx/db`, `@intx/hub-api`, `@intx/hub-common`, `@intx/mime`, `@intx/types` (`^0.4.0`) and `hono` (`^4.11.9`).
-
-`createHookRoutes(deps)` returns a Hono sub-app; mount it outside session and tenant middleware at a path you pick. Every dep is one a hub already has from its own boot sequence:
-
-| `deps` | Type | What the host provides |
-| --- | --- | --- |
-| `db` | `DB["db"]` (from `@intx/db`) | The host's existing drizzle handle. |
-| `credentialCipher` | `CredentialCipher` (from `@intx/types`) | Decrypts the vault secret a hook's credential carries. |
-| `principalKeyStore` | `PrincipalKeyStore` (from `@intx/db`) | Signs the trigger mail as the run's own principal. |
-| `router` | `HookMailRouter` | Delivers the trigger mail once a hook fires. A hub backs this with its live sidecar router. |
-
 ```ts
-import { createHookRoutes } from "@corbits/webhooks";
+import type { DB, PrincipalKeyStore } from "@intx/db";
+import type { CredentialCipher } from "@intx/types";
+import { Hono } from "hono";
+import { createHookRoutes, type HookMailRouter } from "@corbits/webhooks";
 
+declare const db: DB["db"];
+declare const credentialCipher: CredentialCipher;
+declare const principalKeyStore: PrincipalKeyStore;
+declare const router: HookMailRouter;
+
+const app = new Hono();
 app.route(
   "/api/hooks",
   createHookRoutes({ db, credentialCipher, principalKeyStore, router }),
 );
 ```
 
-Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
+Mount the routes outside the hub's session and tenant middleware. Senders carry a signature, not a session, and the tenant comes from the hook's credential. A signed request to a hook credential then starts the run:
 
-### Lower-level: `createRunTriggerDeliverer` and `createTenantSystemSender`
+```http
+POST /api/hooks/crd_…  →  202 { "ok": true, "to": "run_…@acme.example" }
+```
 
-`createHookRoutes` builds its own deliverer internally from these two exports; a host reaches for them directly only when it is driving trigger mail outside a hook — for example `@corbits/cron`'s ticker points a due schedule at the very same `createRunTriggerDeliverer`, given a `HookMailRouter` and a `PrincipalKeyStore`, so cron and webhooks fire through one system-trigger path. `createTenantSystemSender({ db, principalKeyStore })` gives that deliverer a durable per-tenant identity (`<senderLocalPart>@domain`) the trigger mail is signed and authenticated as. Match a delivery that couldn't route with `isRunTriggerUnroutable(error)`, which narrows to `{ code, address, runId }` — `code` is `RUN_GRANTS_NOT_ROUTABLE` or `RUN_MAIL_NOT_ROUTABLE`.
+[Using with Interchange](#using-with-interchange) walks through creating the credential and signing the request with curl.
 
-## How it works
+## Where it fits
 
-`createHookRoutes` serves the hook POST and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+- **Hub side.** Routes mount on the hub's Hono app. Credentials and tenants come from `@intx/db`; run grants come from `@intx/hub-api`'s mail-triggered materializer.
+- **Sidecar side.** Trigger mail and run grants reach the run's sidecar (the agent runtime) through the hub's router.
+- **Siblings.** [`@corbits/cron`](https://github.com/corbitsdev/corbits-cron) fires scheduled runs through the same `MailDeliverer` contract; `createRunTriggerDeliverer` builds one.
 
-Setting a hook is creating a tenant org credential (`principalId` null) on a workflow deployed with `onTrigger({ on: { type: "mail", to } })`. After deploy it has a live address (`run_…@domain`):
+## Reference
+
+### Routes
+
+| Route                             | Resolves the hook by                                                          |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /api/hooks/:id`             | Credential id (`crd_…`). Preferred.                                           |
+| `POST /api/hooks/:tenantId/:name` | Credential name, scoped to the tenant.                                        |
+| `POST /api/hooks`                 | `x-webhook-hook` header or `?hook=`; tenant from `x-tenant-id` or `?tenant=`. |
+
+Responses: `202` delivered, `200 { challenge }` for Slack `url_verification`, `401` bad signature, `404` unknown hook (misses and name collisions look the same), `409` more than one live run matches, `503` no live run or delivery failed, `500` credential lookup failed.
+
+### `metadata.webhook`
+
+| Field      | Value                                                          |
+| ---------- | -------------------------------------------------------------- |
+| `verify`   | `"bearer"`, `"standard-webhooks"` or `"slack"`. Required.      |
+| `workflow` | Name of a live deployment's definition or asset in the tenant. |
+| `to`       | A live run address in the tenant, instead of `workflow`.       |
+
+With neither set, the credential name is matched against definition and asset names, then the tenant's only live run. A live run has status `deployed` or `running`.
+
+With `standard-webhooks`, a `whsec_…` secret is base64-decoded before use as the HMAC key; any other secret is used as-is. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
+
+### Exports
+
+| Export                                                | Purpose                                                                    |
+| ----------------------------------------------------- | -------------------------------------------------------------------------- |
+| `createHookRoutes(deps)`                              | The hook routes as a Hono sub-app.                                         |
+| `createRunTriggerDeliverer(opts)`                     | Delivers trigger mail to a live run as its run principal.                  |
+| `createTenantSystemSender({ db, principalKeyStore })` | Durable per-tenant sender (`<localPart>@domain`) that signs trigger mail.  |
+| `isRunTriggerUnroutable(error)`                       | Narrows to `{ code, address, runId }` when the router has no route.        |
+| `RUN_GRANTS_NOT_ROUTABLE`, `RUN_MAIL_NOT_ROUTABLE`    | The two `code` values.                                                     |
+| `RunTriggerUnroutableError`                           | The error `isRunTriggerUnroutable` matches.                                |
+| `HookMailRouter`                                      | Router type the host passes in: `routeMail` and `sendRunGrants`.           |
+| `MailDeliverer`                                       | `{ to(address, content, tenantId, subject) }`, what the deliverer returns. |
+
+## Using with Interchange
+
+Deploy a workflow that uses `onTrigger({ on: { type: "mail", to } })` from `@intx/workflow`. Then create a provider and a tenant credential that points at it:
 
 ```bash
 curl -X POST "$HUB/api/tenants/$TNT/providers" \
@@ -55,32 +104,31 @@ curl -X POST "$HUB/api/tenants/$TNT/providers" \
 curl -X POST "$HUB/api/tenants/$TNT/credentials" \
   -H "content-type: application/json" -H "cookie: $COOKIE" \
   -d '{
-    "name": "slack",
+    "name": "my-hook",
     "providerId": "prv_…",
     "type": "api_key",
-    "secret": "[redacted: looks like a credential]",
-    "metadata": {
-      "webhook": {
-        "verify": "slack",
-        "workflow": "jimmy"
-      }
-    }
+    "secret": "'"$SECRET"'",
+    "metadata": { "webhook": { "verify": "standard-webhooks", "workflow": "my-workflow" } }
   }'
 ```
 
-`metadata.webhook.verify` is `bearer` | `standard-webhooks` | `slack` (required; there is no `none`). `workflow` is a live deployment whose definition or asset name matches; `to` is a live run address in this tenant. Prefer the credential id (`POST $HUB/api/hooks/crd_…`); the name form is tenant-scoped (`POST $HUB/api/hooks/$TNT/slack`). `verify: "slack"` echoes Slack `url_verification` (no mail).
+Send a signed POST to the credential id the second call returned:
 
-## Development
+```bash
+ID=msg_1 TS=$(date +%s) BODY='{"text":"hi"}'
+SIG=$(printf '%s' "$ID.$TS.$BODY" | openssl dgst -sha256 -hmac "$SECRET" -binary | base64)
 
-```sh
-git clone https://github.com/corbitsdev/webhooks.git
-cd webhooks
-bun install
-bun run typecheck
-bun run test
+curl -X POST "$HUB/api/hooks/crd_…" \
+  -H "content-type: application/json" \
+  -H "webhook-id: $ID" -H "webhook-timestamp: $TS" -H "webhook-signature: v1,$SIG" \
+  -d "$BODY"
 ```
 
-`bun run test` is `bun test ./src`.
+## Upgrading from 0.1
+
+- `installWebhooks(opts)` is removed. Call `app.route("/api/hooks", createHookRoutes(deps))` with the same `db`, `credentialCipher`, `principalKeyStore` and `router`; drop `app` from the options.
+- `@intx/*` and `hono` moved to peer dependencies. Add them to the host.
+- Existing hook credentials and URLs keep working unchanged when the routes stay mounted at `/api/hooks`.
 
 ## License
 
