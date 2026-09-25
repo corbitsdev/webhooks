@@ -1,5 +1,7 @@
 import { createDetachedSignatureWithSigner } from "@intx/crypto";
 import { assembleMessage, assembleSignedContent } from "@intx/mime";
+import type { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
+import type { RunGrantsFrame } from "@intx/types/sidecar";
 import type { SystemSenderIdentity, SystemSender } from "./system-sender.js";
 import {
   base64Encode,
@@ -26,20 +28,14 @@ export type HookMailRouter = {
   sendRunGrants: (
     address: string,
     runId: string,
-    stepGrants: unknown,
-    senderIdentities: unknown,
+    stepGrants: RunGrantsFrame["stepGrants"],
+    senderIdentities: RunGrantsFrame["senderIdentities"],
   ) => boolean;
 };
 
-export type RunTriggerMaterialize = (args: {
-  agentAddress: string;
-  runId: string;
-}) => Promise<{
-  outcome: string;
-  stepGrants?: unknown;
-  code?: string;
-  message?: string;
-}>;
+export type RunTriggerMaterialize = ReturnType<
+  typeof createMailTriggeredRunGrantsMaterializer
+>;
 
 export type CreateRunTriggerDelivererOpts = {
   router: HookMailRouter;
@@ -85,9 +81,8 @@ export class RunTriggerUnroutableError extends Error {
 
 /**
  * Structural match for a {@link RunTriggerUnroutableError}. Structural — not
- * `instanceof` — so callers that stay dependency-free (e.g. `@corbits/cron`,
- * which speaks to this deliverer through the `MailDeliverer` shape alone)
- * can match the same contract without importing this package.
+ * `instanceof` — so it still matches when a consumer such as `@corbits/cron`
+ * resolves its own copy of this package.
  */
 export function isRunTriggerUnroutable(error: unknown): error is RunTriggerUnroutableError {
   if (typeof error !== "object" || error === null) return false;
@@ -116,11 +111,15 @@ export function createRunTriggerDeliverer(
         agentAddress: address,
         runId,
       });
-      if (grants.outcome === "rejected") {
-        throw new Error(grants.message ?? grants.code ?? "rejected");
-      }
-      if (grants.outcome !== "materialized" || grants.stepGrants === undefined) {
-        throw new Error("destination is not a workflow deployment");
+      switch (grants.outcome) {
+        case "rejected":
+          throw new Error(grants.message);
+        case "skip":
+          throw new Error("destination is not a workflow deployment");
+        case "materialized":
+          break;
+        default:
+          grants satisfies never;
       }
 
       const domain = await opts.tenantDomain(tenantId);

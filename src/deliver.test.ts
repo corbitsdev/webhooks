@@ -4,6 +4,7 @@ import { hexEncode } from "@intx/types";
 
 import { createRunTriggerDeliverer, isRunTriggerUnroutable } from "./deliver.js";
 import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver.js";
+import type { HookMailRouter } from "./deliver.js";
 import type { SystemSender } from "./system-sender.js";
 
 const ADDRESS = "run_0123456789abcdef@localhost";
@@ -37,7 +38,7 @@ async function durableSystemSender() {
 function recordingRouter() {
   const grants: {
     address: string;
-    senderIdentities: unknown;
+    senderIdentities: Parameters<HookMailRouter["sendRunGrants"]>[3];
   }[] = [];
   const mail: { authenticatedSender: string; rawMessage: string }[] = [];
   return {
@@ -55,8 +56,8 @@ function recordingRouter() {
       sendRunGrants: (
         address: string,
         _runId: string,
-        _stepGrants: unknown,
-        senderIdentities: unknown,
+        _stepGrants: Parameters<HookMailRouter["sendRunGrants"]>[2],
+        senderIdentities: Parameters<HookMailRouter["sendRunGrants"]>[3],
       ) => {
         grants.push({ address, senderIdentities });
         return true;
@@ -131,7 +132,7 @@ describe("createRunTriggerDeliverer", () => {
 
     expect(sender.resolveCount()).toBe(2);
     const keys = recorded.grants.map(
-      (g) => (g.senderIdentities as { publicKey: string }[])[0]?.publicKey,
+      (g) => g.senderIdentities?.[0]?.publicKey,
     );
     expect(keys[0]).toBe(hexEncode(sender.keyPair.publicKey));
     expect(keys[1]).toBe(keys[0]);
@@ -194,5 +195,28 @@ describe("createRunTriggerDeliverer", () => {
     expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
     // The grants barrier went out before the mail leg failed.
     expect(recorded.grants).toHaveLength(1);
+  });
+
+  test("rejected grants deliver nothing", async () => {
+    const sender = await durableSystemSender();
+    const recorded = recordingRouter();
+    const deliver = createRunTriggerDeliverer({
+      router: recorded.router,
+      materialize: async () => ({
+        outcome: "rejected",
+        status: 403,
+        code: "denied",
+        message: "run grants denied",
+      }),
+      tenantDomain: async () => "localhost",
+      senderLocalPart: "cron",
+      systemSender: sender.sender,
+    });
+
+    await expect(deliver.to(ADDRESS, "tick", "tnt_1", undefined)).rejects.toThrow(
+      "run grants denied",
+    );
+    expect(recorded.grants).toEqual([]);
+    expect(recorded.mail).toEqual([]);
   });
 });
