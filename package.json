@@ -1,6 +1,6 @@
 {
   "name": "@corbits/webhooks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Receive signed webhooks (Slack, Standard Webhooks, bearer) and start a workflow run.",
   "license": "LGPL-2.1-only",
   "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
