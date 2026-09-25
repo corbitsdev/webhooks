@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { createHookRoutes } from "./hooks";
-import type { LoadedHook, LiveRun } from "./resolve";
+import { createHookRoutes } from "./hooks.js";
+import type { LoadedHook, LiveRun } from "./resolve.js";
 
 const JIMMY: LiveRun = {
   address: "run_jimmy@localhost",

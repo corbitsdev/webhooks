@@ -1,4 +1,4 @@
-export { installWebhooks, type InstallWebhooksOpts } from "./install";
+export { installWebhooks, type InstallWebhooksOpts } from "./install.js";
 export {
   createRunTriggerDeliverer,
   isRunTriggerUnroutable,
@@ -10,10 +10,10 @@ export {
   type MailDeliverer,
   type RunTriggerMaterialize,
   type RunTriggerUnroutableCode,
-} from "./deliver";
+} from "./deliver.js";
 export {
   createTenantSystemSender,
   type CreateTenantSystemSenderOpts,
   type SystemSender,
   type SystemSenderIdentity,
-} from "./system-sender";
+} from "./system-sender.js";

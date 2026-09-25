@@ -6,10 +6,10 @@ import type { CredentialCipher } from "@intx/types";
 import {
   createRunTriggerDeliverer,
   type HookMailRouter,
-} from "./deliver";
-import { createHookRoutes } from "./hooks";
-import { createTenantSystemSender } from "./system-sender";
-import { listLiveMailRuns, loadWebhook } from "./resolve";
+} from "./deliver.js";
+import { createHookRoutes } from "./hooks.js";
+import { createTenantSystemSender } from "./system-sender.js";
+import { listLiveMailRuns, loadWebhook } from "./resolve.js";
 
 export type InstallWebhooksOpts = {
   app: { route(path: string, handler: Hono): unknown };

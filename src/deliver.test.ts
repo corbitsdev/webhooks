@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPair, signEd25519, verifyEd25519 } from "@intx/crypto";
 import { hexEncode } from "@intx/types";
 
-import { createRunTriggerDeliverer, isRunTriggerUnroutable } from "./deliver";
-import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver";
-import type { SystemSender } from "./system-sender";
+import { createRunTriggerDeliverer, isRunTriggerUnroutable } from "./deliver.js";
+import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver.js";
+import type { SystemSender } from "./system-sender.js";
 
 const ADDRESS = "run_0123456789abcdef@localhost";
 
