@@ -3,11 +3,7 @@ import { assembleMessage, assembleSignedContent } from "@intx/mime";
 import type { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
 import type { RunGrantsFrame } from "@intx/types/sidecar";
 import type { SystemSenderIdentity, SystemSender } from "./system-sender.js";
-import {
-  base64Encode,
-  deriveWorkflowRunId,
-  isRunAddress,
-} from "@intx/types";
+import { base64Encode, deriveWorkflowRunId, isRunAddress } from "@intx/types";
 
 export type MailDeliverer = {
   to: (
@@ -84,11 +80,14 @@ export class RunTriggerUnroutableError extends Error {
  * `instanceof` — so it still matches when a consumer such as `@corbits/cron`
  * resolves its own copy of this package.
  */
-export function isRunTriggerUnroutable(error: unknown): error is RunTriggerUnroutableError {
+export function isRunTriggerUnroutable(
+  error: unknown,
+): error is RunTriggerUnroutableError {
   if (typeof error !== "object" || error === null) return false;
   const rec = error as Record<string, unknown>;
   return (
-    (rec["code"] === RUN_GRANTS_NOT_ROUTABLE || rec["code"] === RUN_MAIL_NOT_ROUTABLE) &&
+    (rec["code"] === RUN_GRANTS_NOT_ROUTABLE ||
+      rec["code"] === RUN_MAIL_NOT_ROUTABLE) &&
     typeof rec["address"] === "string" &&
     typeof rec["runId"] === "string"
   );
@@ -136,7 +135,11 @@ export function createRunTriggerDeliverer(
           { address: sender.address, publicKey: sender.publicKey },
         ])
       ) {
-        throw new RunTriggerUnroutableError(RUN_GRANTS_NOT_ROUTABLE, address, runId);
+        throw new RunTriggerUnroutableError(
+          RUN_GRANTS_NOT_ROUTABLE,
+          address,
+          runId,
+        );
       }
 
       const raw = await assembleTriggerMail({
@@ -148,9 +151,18 @@ export function createRunTriggerDeliverer(
         sender,
       });
       if (
-        !opts.router.routeMail(address, raw.base64, sender.address, raw.messageId)
+        !opts.router.routeMail(
+          address,
+          raw.base64,
+          sender.address,
+          raw.messageId,
+        )
       ) {
-        throw new RunTriggerUnroutableError(RUN_MAIL_NOT_ROUTABLE, address, runId);
+        throw new RunTriggerUnroutableError(
+          RUN_MAIL_NOT_ROUTABLE,
+          address,
+          runId,
+        );
       }
     },
   };

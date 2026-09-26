@@ -160,9 +160,7 @@ export async function listLiveMailRuns(
         isNotNull(run.address),
       ),
   });
-  const anchors = runs.filter(
-    (r) => r.address && r.anchorRunId === r.id,
-  );
+  const anchors = runs.filter((r) => r.address && r.anchorRunId === r.id);
   if (anchors.length === 0) return [];
 
   const defIds = [...new Set(anchors.map((r) => r.definitionId))];
@@ -193,7 +191,9 @@ export async function listLiveMailRuns(
     live.push({
       address: run.address,
       definitionName: def?.name ?? "",
-      assetName: def?.assetId ? (assetById.get(def.assetId)?.name ?? null) : null,
+      assetName: def?.assetId
+        ? (assetById.get(def.assetId)?.name ?? null)
+        : null,
     });
   }
   return live;
