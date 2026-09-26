@@ -17,44 +17,33 @@ bun add @corbits/webhooks
 
 The host provides the peers: `@intx/crypto`, `@intx/db`, `@intx/hub-api`, `@intx/hub-common`, `@intx/mime`, `@intx/types` (`^0.4.0`) and `hono` (`^4.11.9`).
 
-`installWebhooks(opts)` mounts `POST /api/hooks` directly on the host app. Every field of `opts` is a host responsibility — the same four a hub already has on hand from its own boot sequence (a drizzle handle, its credential cipher, its principal key store, and its mail router):
+`createHookRoutes(deps)` returns a Hono sub-app; mount it outside session and tenant middleware at a path you pick. Every dep is one a hub already has from its own boot sequence:
 
-| `opts` | Type | What the host provides |
+| `deps` | Type | What the host provides |
 | --- | --- | --- |
-| `app` | `{ route(path, handler): unknown }` | Any Hono app; `installWebhooks` mounts `/api/hooks` on it. |
 | `db` | `DB["db"]` (from `@intx/db`) | The host's existing drizzle handle. |
 | `credentialCipher` | `CredentialCipher` (from `@intx/types`) | Decrypts the vault secret a hook's credential carries. |
 | `principalKeyStore` | `PrincipalKeyStore` (from `@intx/db`) | Signs the trigger mail as the run's own principal. |
 | `router` | `HookMailRouter` | Delivers the trigger mail once a hook fires. A hub backs this with its live sidecar router. |
 
-The function below compiles against this package's real entry point, with every host-owned dependency passed in by its own published type — no in-process store standing in for a hub's database, cipher, key store, or router:
-
 ```ts
-import type { Hono } from "hono";
-import type { DB, PrincipalKeyStore } from "@intx/db";
-import type { CredentialCipher } from "@intx/types";
-import { installWebhooks, type HookMailRouter } from "@corbits/webhooks";
+import { createHookRoutes } from "@corbits/webhooks";
 
-export async function mountWebhooks(
-  app: Hono,
-  db: DB["db"],
-  credentialCipher: CredentialCipher,
-  principalKeyStore: PrincipalKeyStore,
-  router: HookMailRouter,
-): Promise<void> {
-  await installWebhooks({ app, db, credentialCipher, principalKeyStore, router });
-}
+app.route(
+  "/api/hooks",
+  createHookRoutes({ db, credentialCipher, principalKeyStore, router }),
+);
 ```
 
 Bot tokens for media and chat integrations are separate `credentialBindings` — not this signing secret.
 
 ### Lower-level: `createRunTriggerDeliverer` and `createTenantSystemSender`
 
-`installWebhooks` builds its own deliverer internally from these two exports; a host reaches for them directly only when it is driving trigger mail outside a hook — for example `@corbits/cron`'s ticker points a due schedule at the very same `createRunTriggerDeliverer`, given a `HookMailRouter` and a `PrincipalKeyStore`, so cron and webhooks fire through one system-trigger path. `createTenantSystemSender({ db, principalKeyStore })` gives that deliverer a durable per-tenant identity (`<senderLocalPart>@domain`) the trigger mail is signed and authenticated as. Match a delivery that couldn't route with `isRunTriggerUnroutable(error)`, which narrows to `{ code, address, runId }` — `code` is `RUN_GRANTS_NOT_ROUTABLE` or `RUN_MAIL_NOT_ROUTABLE`.
+`createHookRoutes` builds its own deliverer internally from these two exports; a host reaches for them directly only when it is driving trigger mail outside a hook — for example `@corbits/cron`'s ticker points a due schedule at the very same `createRunTriggerDeliverer`, given a `HookMailRouter` and a `PrincipalKeyStore`, so cron and webhooks fire through one system-trigger path. `createTenantSystemSender({ db, principalKeyStore })` gives that deliverer a durable per-tenant identity (`<senderLocalPart>@domain`) the trigger mail is signed and authenticated as. Match a delivery that couldn't route with `isRunTriggerUnroutable(error)`, which narrows to `{ code, address, runId }` — `code` is `RUN_GRANTS_NOT_ROUTABLE` or `RUN_MAIL_NOT_ROUTABLE`.
 
 ## How it works
 
-`installWebhooks` mounts `POST /api/hooks` and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
+`createHookRoutes` serves the hook POST and builds a durable per-tenant system sender (`webhook@domain`) so the trigger mail's `From` verifies. Match unroutable deliveries with `isRunTriggerUnroutable` so callers that speak the `MailDeliverer` shape (e.g. `@corbits/cron`) see the same `address` and `runId`.
 
 Setting a hook is creating a tenant org credential (`principalId` null) on a workflow deployed with `onTrigger({ on: { type: "mail", to } })`. After deploy it has a live address (`run_…@domain`):
 
