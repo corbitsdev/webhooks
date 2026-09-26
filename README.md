@@ -15,39 +15,11 @@ Use it to start workflows from third-party events. It does not fire on a schedul
 ## Install
 
 ```bash
-npm add @corbits/webhooks \
+bun add @corbits/webhooks \
   @intx/crypto @intx/db @intx/hub-api @intx/hub-common @intx/mime @intx/types hono
 ```
 
 The `@intx/*` peers are `^0.4.0`; `hono` is `^4.11.9`.
-
-## Quickstart
-
-```ts
-import type { DB, PrincipalKeyStore } from "@intx/db";
-import type { CredentialCipher } from "@intx/types";
-import { Hono } from "hono";
-import { createHookRoutes, type HookMailRouter } from "@corbits/webhooks";
-
-declare const db: DB["db"];
-declare const credentialCipher: CredentialCipher;
-declare const principalKeyStore: PrincipalKeyStore;
-declare const router: HookMailRouter;
-
-const app = new Hono();
-app.route(
-  "/api/hooks",
-  createHookRoutes({ db, credentialCipher, principalKeyStore, router }),
-);
-```
-
-Mount the routes outside the hub's session and tenant middleware. Senders carry a signature, not a session, and the tenant comes from the hook's credential. A signed request to a hook credential then starts the run:
-
-```http
-POST /api/hooks/crd_…  →  202 { "ok": true, "to": "run_…@acme.example" }
-```
-
-[Using with Interchange](#using-with-interchange) walks through creating the credential and signing the request with curl.
 
 ## Where it fits
 
@@ -94,6 +66,40 @@ With `standard-webhooks`, a `whsec_…` secret is base64-decoded before use as t
 
 ## Using with Interchange
 
+Build the routes from the hub's database, credential cipher and principal key store:
+
+```ts
+import { createEnvKeyCredentialCipher } from "@intx/crypto";
+import { createDB, createPrincipalKeyStore } from "@intx/db";
+import { hexDecode } from "@intx/types";
+import { createHookRoutes, type HookMailRouter } from "@corbits/webhooks";
+
+const { db } = createDB({
+  host: "localhost",
+  port: 5432,
+  user: "postgres",
+  password: "postgres",
+  database: "interchange",
+});
+
+export const hookRoutes = (router: HookMailRouter) =>
+  createHookRoutes({
+    db,
+    credentialCipher: createEnvKeyCredentialCipher(
+      hexDecode(String(process.env["CREDENTIAL_ENCRYPTION_KEY"])),
+    ),
+    principalKeyStore: createPrincipalKeyStore({
+      db,
+      cipher: createEnvKeyCredentialCipher(
+        hexDecode(String(process.env["PRINCIPAL_KEY_ENCRYPTION_KEY"])),
+      ),
+    }),
+    router,
+  });
+```
+
+`router` is the hub's sidecar mail router. Mount the result at `/api/hooks` outside the hub's session and tenant middleware: senders carry a signature, not a session, and the tenant comes from the hook's credential.
+
 Deploy a workflow that uses `onTrigger({ on: { type: "mail", to } })` from `@intx/workflow`. Then create a provider and a tenant credential that points at it:
 
 ```bash
@@ -123,6 +129,8 @@ curl -X POST "$HUB/api/hooks/crd_…" \
   -H "webhook-id: $ID" -H "webhook-timestamp: $TS" -H "webhook-signature: v1,$SIG" \
   -d "$BODY"
 ```
+
+The hub answers `202 { "ok": true, "to": "run_…@acme.example" }` and the run starts.
 
 ## Upgrading from 0.1
 
