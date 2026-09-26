@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPair, signEd25519, verifyEd25519 } from "@intx/crypto";
 import { hexEncode } from "@intx/types";
 
-import { createRunTriggerDeliverer, isRunTriggerUnroutable } from "./deliver.js";
+import {
+  createRunTriggerDeliverer,
+  isRunTriggerUnroutable,
+} from "./deliver.js";
 import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver.js";
 import type { HookMailRouter } from "./deliver.js";
 import type { SystemSender } from "./system-sender.js";
@@ -110,7 +113,10 @@ describe("createRunTriggerDeliverer", () => {
     const [barrier] = recorded.grants;
     expect(barrier?.address).toBe(ADDRESS);
     expect(barrier?.senderIdentities).toEqual([
-      { address: "cron@localhost", publicKey: hexEncode(sender.keyPair.publicKey) },
+      {
+        address: "cron@localhost",
+        publicKey: hexEncode(sender.keyPair.publicKey),
+      },
     ]);
     const [signing] = sender.signings;
     if (signing === undefined) throw new Error("the mail was not signed");
@@ -131,14 +137,12 @@ describe("createRunTriggerDeliverer", () => {
     await deliver.to(ADDRESS, "two", "tnt_1", undefined);
 
     expect(sender.resolveCount()).toBe(2);
-    const keys = recorded.grants.map(
-      (g) => g.senderIdentities?.[0]?.publicKey,
-    );
+    const keys = recorded.grants.map((g) => g.senderIdentities?.[0]?.publicKey);
     expect(keys[0]).toBe(hexEncode(sender.keyPair.publicKey));
     expect(keys[1]).toBe(keys[0]);
-    expect(recorded.mail.every((m) => m.authenticatedSender === "cron@localhost")).toBe(
-      true,
-    );
+    expect(
+      recorded.mail.every((m) => m.authenticatedSender === "cron@localhost"),
+    ).toBe(true);
   });
 
   test("rejects a destination that is not a run address", async () => {
@@ -171,7 +175,9 @@ describe("createRunTriggerDeliverer", () => {
     expect((error as { code: string }).code).toBe(RUN_GRANTS_NOT_ROUTABLE);
     expect((error as { address: string }).address).toBe(ADDRESS);
     expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
-    expect(String((error as Error).message)).toContain("run grants not routable");
+    expect(String((error as Error).message)).toContain(
+      "run grants not routable",
+    );
     // The grants barrier never went out, so no mail follows it.
     expect(recorded.mail).toEqual([]);
   });
@@ -213,9 +219,9 @@ describe("createRunTriggerDeliverer", () => {
       systemSender: sender.sender,
     });
 
-    await expect(deliver.to(ADDRESS, "tick", "tnt_1", undefined)).rejects.toThrow(
-      "run grants denied",
-    );
+    await expect(
+      deliver.to(ADDRESS, "tick", "tnt_1", undefined),
+    ).rejects.toThrow("run grants denied");
     expect(recorded.grants).toEqual([]);
     expect(recorded.mail).toEqual([]);
   });

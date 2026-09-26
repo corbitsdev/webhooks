@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  verifyBearer,
-  verifySlack,
-  verifyStandardWebhooks,
-} from "./verify.js";
+import { verifyBearer, verifySlack, verifyStandardWebhooks } from "./verify.js";
 
 describe("verifyStandardWebhooks", () => {
   test("accepts a valid v1 signature", async () => {
