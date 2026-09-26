@@ -15,6 +15,8 @@ yarn add @corbits/webhooks
 bun add @corbits/webhooks
 ```
 
+The host provides the peers: `@intx/crypto`, `@intx/db`, `@intx/hub-api`, `@intx/hub-common`, `@intx/mime`, `@intx/types` (`^0.4.0`) and `hono` (`^4.11.9`).
+
 `installWebhooks(opts)` mounts `POST /api/hooks` directly on the host app. Every field of `opts` is a host responsibility — the same four a hub already has on hand from its own boot sequence (a drizzle handle, its credential cipher, its principal key store, and its mail router):
 
 | `opts` | Type | What the host provides |

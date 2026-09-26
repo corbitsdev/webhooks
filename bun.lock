@@ -4,18 +4,25 @@
   "workspaces": {
     "": {
       "name": "@corbits/webhooks",
-      "dependencies": {
+      "devDependencies": {
+        "@intx/crypto": "0.4.0",
+        "@intx/db": "0.4.0",
+        "@intx/hub-api": "0.4.0",
+        "@intx/hub-common": "0.4.0",
+        "@intx/mime": "0.4.0",
+        "@intx/types": "0.4.0",
+        "@types/bun": "1.3.9",
+        "hono": "4.11.9",
+        "typescript": "5.9.3",
+      },
+      "peerDependencies": {
         "@intx/crypto": "^0.4.0",
         "@intx/db": "^0.4.0",
         "@intx/hub-api": "^0.4.0",
         "@intx/hub-common": "^0.4.0",
         "@intx/mime": "^0.4.0",
         "@intx/types": "^0.4.0",
-        "hono": "4.11.9",
-      },
-      "devDependencies": {
-        "@types/bun": "1.3.9",
-        "typescript": "5.9.3",
+        "hono": "^4.11.9",
       },
     },
   },
