@@ -1,7 +1,5 @@
 # @corbits/webhooks
 
-[![npm](https://img.shields.io/npm/v/@corbits/webhooks.svg)](https://www.npmjs.com/package/@corbits/webhooks) [![License: LGPL-2.1](https://img.shields.io/badge/license-LGPL--2.1-green.svg)](https://github.com/corbitsdev/webhooks/blob/main/LICENSE)
-
 Signed webhook ingress for Interchange workflows: verifies a Slack, Standard Webhooks or bearer request against a hub credential, then delivers the body as trigger mail to a live workflow run. A Corbits hub module, mounted as Hono routes on the Interchange hub (Interchange's multi-tenant control plane, where a principal is an identity and a grant is a permission it holds) and backed by its Postgres.
 
 ## Why @corbits/webhooks?

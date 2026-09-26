@@ -2,7 +2,15 @@
   "name": "@corbits/webhooks",
   "version": "0.2.0",
   "description": "Receive signed webhooks (Slack, Standard Webhooks, bearer) and start a workflow run.",
-  "homepage": "https://github.com/corbitsdev/webhooks",
+  "keywords": [
+    "corbits",
+    "hono",
+    "interchange",
+    "slack",
+    "standard-webhooks",
+    "webhooks"
+  ],
+  "homepage": "https://github.com/corbitsdev/webhooks#readme",
   "bugs": {
     "url": "https://github.com/corbitsdev/webhooks/issues"
   },
@@ -19,8 +27,6 @@
   ],
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -31,14 +37,15 @@
     "access": "public"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "bun run build",
-    "test": "bun test ./src",
-    "test:e2e": "bun test ./e2e",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "format:check": "oxfmt --check",
+    "test": "bun test src --pass-with-no-tests",
+    "test:e2e": "bun test e2e",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
   },
   "devDependencies": {
     "@intx/crypto": "0.4.0",
@@ -62,5 +69,9 @@
     "@intx/mime": "^0.4.0",
     "@intx/types": "^0.4.0",
     "hono": "^4.11.9"
+  },
+  "engines": {
+    "bun": ">=1.2.0",
+    "node": ">=24"
   }
 }
