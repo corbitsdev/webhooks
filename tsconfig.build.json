@@ -5,13 +5,11 @@
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    "composite": false,
-    "outDir": "dist",
-    "rootDir": "src",
-    "allowImportingTsExtensions": false,
     "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
 }
