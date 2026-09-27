@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 
 import type { MailDeliverer } from "./deliver.js";
 import type { LoadedHook, LiveRun } from "./resolve.js";
@@ -12,12 +13,21 @@ export type LoadHook = (
 
 export type ListRuns = (tenantId: string) => Promise<LiveRun[]>;
 
+/** Largest request body accepted, checked before anything is hashed. */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
 export function createHookApp(opts: {
   deliver: MailDeliverer;
   loadHook: LoadHook;
   listRuns: ListRuns;
 }): Hono {
   const app = new Hono();
+  app.use(
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) => c.json({ error: "payload_too_large" }, 413),
+    }),
+  );
   app.post("/", (c) => handle(c, opts));
   app.post("/:id", (c) => handle(c, opts));
   app.post("/:tenantId/:name", (c) => handle(c, opts));
@@ -59,16 +69,27 @@ async function handle(
     return c.json({ error: "unknown_hook" }, 404);
   }
 
-  const body = await c.req.text();
+  const raw = new Uint8Array(await c.req.arrayBuffer());
   let ok = false;
   if (loaded.meta.verify === "bearer") {
     ok = verifyBearer(loaded.secret, c.req.raw.headers);
   } else if (loaded.meta.verify === "standard-webhooks") {
-    ok = await verifyStandardWebhooks(loaded.secret, c.req.raw.headers, body);
+    ok = await verifyStandardWebhooks(loaded.secret, c.req.raw.headers, raw);
   } else if (loaded.meta.verify === "slack") {
-    ok = await verifySlack(loaded.secret, c.req.raw.headers, body);
+    ok = await verifySlack(loaded.secret, c.req.raw.headers, raw);
   }
   if (!ok) return c.json({ error: "unauthorized" }, 401);
+
+  // Trigger mail carries text, so a body that is not UTF-8 cannot be forwarded
+  // unchanged; refuse it rather than substitute replacement characters.
+  let body: string;
+  try {
+    body = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      raw,
+    );
+  } catch {
+    return c.json({ error: "unsupported_body" }, 415);
+  }
 
   if (loaded.meta.verify === "slack") {
     const challenge = slackChallenge(body);
