@@ -12,7 +12,13 @@ import { principal, tenant } from "@intx/db/schema";
 
 import { createHookRoutes, type HookMailRouter } from "../src/index.js";
 
-const PG_ENV = ["PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE"] as const;
+const PG_ENV = [
+  "PGHOST",
+  "PGPORT",
+  "PGUSER",
+  "PGPASSWORD",
+  "PGDATABASE",
+] as const;
 
 /** Real-Postgres suites run when every libpq `PG_ENV` key is set and skip otherwise. */
 export function harnessDbAvailable(): boolean {
@@ -126,10 +132,7 @@ export function mountHookRoutes(opts: {
   return app;
 }
 
-export async function seedTenant(
-  db: TestDb["db"],
-  id: string,
-): Promise<void> {
+export async function seedTenant(db: TestDb["db"], id: string): Promise<void> {
   await db.insert(tenant).values({
     id,
     name: id,

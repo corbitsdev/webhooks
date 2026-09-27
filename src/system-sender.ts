@@ -68,7 +68,8 @@ export function createTenantSystemSender(
             })
           : null;
       // A lost insert race means the winner already minted the one active key.
-      const principalId = existing ?? created?.id ?? (await find(tenantId, localPart));
+      const principalId =
+        existing ?? created?.id ?? (await find(tenantId, localPart));
       if (principalId === undefined) {
         throw new Error(
           `no system sender principal "${localPart}" in tenant ${tenantId}`,

@@ -3,10 +3,7 @@ import { createGrantStore, type DB, type PrincipalKeyStore } from "@intx/db";
 import { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
 import type { CredentialCipher } from "@intx/types";
 
-import {
-  createRunTriggerDeliverer,
-  type HookMailRouter,
-} from "./deliver.js";
+import { createRunTriggerDeliverer, type HookMailRouter } from "./deliver.js";
 import { createHookApp } from "./hooks.js";
 import { createTenantSystemSender } from "./system-sender.js";
 import { listLiveMailRuns, loadWebhook } from "./resolve.js";

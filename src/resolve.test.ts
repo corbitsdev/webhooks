@@ -21,7 +21,11 @@ describe("parseWebhookMeta", () => {
 
 describe("pickDestination", () => {
   const runs = [
-    { address: "run_chat@localhost", definitionName: "chat", assetName: "chat" },
+    {
+      address: "run_chat@localhost",
+      definitionName: "chat",
+      assetName: "chat",
+    },
     {
       address: "run_jimmy@localhost",
       definitionName: "jimmy",

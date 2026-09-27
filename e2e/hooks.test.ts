@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { eq } from "drizzle-orm";
 import {
   asset,
@@ -91,7 +98,9 @@ async function seedDeployment(db: TestDb["db"]): Promise<void> {
       SECRET,
       credentialAad(HOOK, "secret"),
     ),
-    metadata: { webhook: { verify: "standard-webhooks", workflow: "my-workflow" } },
+    metadata: {
+      webhook: { verify: "standard-webhooks", workflow: "my-workflow" },
+    },
   });
 }
 
@@ -128,90 +137,93 @@ async function runGrants(db: TestDb["db"]) {
   return { runPrincipals, grants };
 }
 
-describe.skipIf(!harnessDbAvailable())("POST /api/hooks (real Postgres)", () => {
-  let h: TestDb | undefined;
-  const db = () => {
-    if (h === undefined) throw new Error("harness setup failed");
-    return h.db;
-  };
+describe.skipIf(!harnessDbAvailable())(
+  "POST /api/hooks (real Postgres)",
+  () => {
+    let h: TestDb | undefined;
+    const db = () => {
+      if (h === undefined) throw new Error("harness setup failed");
+      return h.db;
+    };
 
-  beforeAll(async () => {
-    h = await createTestDb();
-  }, HARNESS_SETUP_TIMEOUT_MS);
+    beforeAll(async () => {
+      h = await createTestDb();
+    }, HARNESS_SETUP_TIMEOUT_MS);
 
-  beforeEach(async () => {
-    await h?.reset();
-    await seedDeployment(db());
-  }, HARNESS_SETUP_TIMEOUT_MS);
+    beforeEach(async () => {
+      await h?.reset();
+      await seedDeployment(db());
+    }, HARNESS_SETUP_TIMEOUT_MS);
 
-  afterAll(async () => {
-    await h?.close();
-  });
-
-  test("a tampered signature is 401 and triggers nothing", async () => {
-    const recorded = recordingRouter();
-    const app = mountHookRoutes({ db: db(), router: recorded.router });
-    const body = `{"text":"hi"}`;
-    const headers = await standardWebhooksHeaders(body);
-
-    const res = await app.request(`/api/hooks/${HOOK}`, {
-      method: "POST",
-      headers,
-      body: `{"text":"bye"}`,
+    afterAll(async () => {
+      await h?.close();
     });
 
-    expect(res.status).toBe(401);
-    expect(recorded.grants).toEqual([]);
-    expect(recorded.mail).toEqual([]);
-    const { runPrincipals, grants } = await runGrants(db());
-    expect(runPrincipals).toEqual([]);
-    expect(grants).toEqual([]);
-  });
+    test("a tampered signature is 401 and triggers nothing", async () => {
+      const recorded = recordingRouter();
+      const app = mountHookRoutes({ db: db(), router: recorded.router });
+      const body = `{"text":"hi"}`;
+      const headers = await standardWebhooksHeaders(body);
 
-  test("a signed POST triggers the run and materializes its grants", async () => {
-    const recorded = recordingRouter();
-    const app = mountHookRoutes({ db: db(), router: recorded.router });
-    const body = `{"text":"hi"}`;
+      const res = await app.request(`/api/hooks/${HOOK}`, {
+        method: "POST",
+        headers,
+        body: `{"text":"bye"}`,
+      });
 
-    const res = await app.request(`/api/hooks/${HOOK}`, {
-      method: "POST",
-      headers: await standardWebhooksHeaders(body),
-      body,
+      expect(res.status).toBe(401);
+      expect(recorded.grants).toEqual([]);
+      expect(recorded.mail).toEqual([]);
+      const { runPrincipals, grants } = await runGrants(db());
+      expect(runPrincipals).toEqual([]);
+      expect(grants).toEqual([]);
     });
 
-    expect(res.status).toBe(202);
-    expect(await res.json()).toEqual({ ok: true, to: ADDRESS });
-    const { runPrincipals, grants } = await runGrants(db());
-    const [runPrincipal] = runPrincipals;
-    expect(runPrincipals).toHaveLength(1);
-    expect(grants.map((g) => [g.principalId, g.resource, g.action])).toEqual([
-      [runPrincipal?.id ?? "", "tool:read_file", "invoke"],
-    ]);
-    const [frame] = recorded.grants;
-    expect(frame?.[0]).toBe(ADDRESS);
-    expect(frame?.[2]).toHaveLength(1);
-    expect(recorded.mail).toHaveLength(1);
-  });
+    test("a signed POST triggers the run and materializes its grants", async () => {
+      const recorded = recordingRouter();
+      const app = mountHookRoutes({ db: db(), router: recorded.router });
+      const body = `{"text":"hi"}`;
 
-  test("the tenant-scoped name path resolves only inside that tenant", async () => {
-    const recorded = recordingRouter();
-    const app = mountHookRoutes({ db: db(), router: recorded.router });
-    await seedTenant(db(), "tnt_other");
-    const body = `{"text":"hi"}`;
+      const res = await app.request(`/api/hooks/${HOOK}`, {
+        method: "POST",
+        headers: await standardWebhooksHeaders(body),
+        body,
+      });
 
-    const miss = await app.request("/api/hooks/tnt_other/my-hook", {
-      method: "POST",
-      headers: await standardWebhooksHeaders(body),
-      body,
-    });
-    const hit = await app.request(`/api/hooks/${TENANT}/my-hook`, {
-      method: "POST",
-      headers: await standardWebhooksHeaders(body),
-      body,
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ ok: true, to: ADDRESS });
+      const { runPrincipals, grants } = await runGrants(db());
+      const [runPrincipal] = runPrincipals;
+      expect(runPrincipals).toHaveLength(1);
+      expect(grants.map((g) => [g.principalId, g.resource, g.action])).toEqual([
+        [runPrincipal?.id ?? "", "tool:read_file", "invoke"],
+      ]);
+      const [frame] = recorded.grants;
+      expect(frame?.[0]).toBe(ADDRESS);
+      expect(frame?.[2]).toHaveLength(1);
+      expect(recorded.mail).toHaveLength(1);
     });
 
-    expect(miss.status).toBe(404);
-    expect(hit.status).toBe(202);
-    expect(recorded.mail).toHaveLength(1);
-  });
-});
+    test("the tenant-scoped name path resolves only inside that tenant", async () => {
+      const recorded = recordingRouter();
+      const app = mountHookRoutes({ db: db(), router: recorded.router });
+      await seedTenant(db(), "tnt_other");
+      const body = `{"text":"hi"}`;
+
+      const miss = await app.request("/api/hooks/tnt_other/my-hook", {
+        method: "POST",
+        headers: await standardWebhooksHeaders(body),
+        body,
+      });
+      const hit = await app.request(`/api/hooks/${TENANT}/my-hook`, {
+        method: "POST",
+        headers: await standardWebhooksHeaders(body),
+        body,
+      });
+
+      expect(miss.status).toBe(404);
+      expect(hit.status).toBe(202);
+      expect(recorded.mail).toHaveLength(1);
+    });
+  },
+);
