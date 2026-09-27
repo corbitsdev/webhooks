@@ -11,6 +11,7 @@ import { createEnvKeyCredentialCipher } from "@intx/crypto";
 import { principal, tenant } from "@intx/db/schema";
 
 import { createHookRoutes, type HookMailRouter } from "../src/index.js";
+import { runWebhookMigrations } from "../src/migrations.js";
 
 const PG_ENV = [
   "PGHOST",
@@ -31,7 +32,7 @@ function requireEnv(key: (typeof PG_ENV)[number]): string {
   return value;
 }
 
-function harnessDbConfig(): DBConfig {
+export function harnessDbConfig(): DBConfig {
   return {
     host: requireEnv("PGHOST"),
     port: Number(requireEnv("PGPORT")),
@@ -57,7 +58,9 @@ export async function createTestDb(): Promise<TestDb> {
   const schema = `wh_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   try {
     await runMigrations(config, { schema });
+    await runWebhookMigrations(config, { schema });
   } catch (error) {
+    await dropSchema(config, { schema: "webhooks" });
     await dropSchema(config, { schema });
     throw error;
   }
@@ -82,6 +85,7 @@ export async function createTestDb(): Promise<TestDb> {
     },
     close: async () => {
       await handle.close();
+      await dropSchema(config, { schema: "webhooks" });
       await dropSchema(config, { schema });
     },
   };

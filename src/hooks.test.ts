@@ -22,6 +22,41 @@ function hook(over: Partial<LoadedHook> = {}): LoadedHook {
   };
 }
 
+function memoryReplay() {
+  const seen = new Set<string>();
+  return {
+    claim: async (credentialId: string, nonce: string) =>
+      !seen.has(`${credentialId}:${nonce}`) &&
+      !!seen.add(`${credentialId}:${nonce}`),
+    release: async (credentialId: string, nonce: string) =>
+      void seen.delete(`${credentialId}:${nonce}`),
+  };
+}
+
+async function slackRequest(secret: string, body: string) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`v0:${timestamp}:${body}`),
+  );
+  return {
+    method: "POST",
+    body,
+    headers: {
+      "x-slack-request-timestamp": timestamp,
+      "x-slack-signature": `v0=${Buffer.from(mac).toString("hex")}`,
+    },
+  };
+}
+
 function mount(opts?: {
   loaded?: LoadedHook | "ambiguous" | undefined;
   runs?: LiveRun[];
@@ -33,6 +68,7 @@ function mount(opts?: {
     "/api/hooks",
     createHookApp({
       loadHook: async () => opts?.loaded,
+      replay: memoryReplay(),
       listRuns: async () => opts?.runs ?? [],
       deliver: {
         to: async (to, content, tenantId) => {
@@ -250,6 +286,40 @@ describe("createHookApp", () => {
     });
     expect(res.status).toBe(415);
     expect(delivered).toEqual([]);
+  });
+
+  test("409s a replayed Slack delivery", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({
+        secret: "signing-secret",
+        meta: { verify: "slack", to: JIMMY.address },
+      }),
+      runs: [JIMMY],
+    });
+    const init = await slackRequest("signing-secret", "{}");
+    const first = await app.request("/api/hooks/slack", init);
+    const again = await app.request("/api/hooks/slack", init);
+    expect(first.status).toBe(202);
+    expect(again.status).toBe(409);
+    expect(delivered).toHaveLength(1);
+  });
+
+  test("accepts a sender retry after a failed delivery", async () => {
+    let fail = true;
+    const { app } = mount({
+      loaded: hook({
+        secret: "signing-secret",
+        meta: { verify: "slack", to: JIMMY.address },
+      }),
+      runs: [JIMMY],
+      deliver: async () => {
+        if (fail) throw new Error("agent is unreachable");
+      },
+    });
+    const init = await slackRequest("signing-secret", "{}");
+    expect((await app.request("/api/hooks/slack", init)).status).toBe(503);
+    fail = false;
+    expect((await app.request("/api/hooks/slack", init)).status).toBe(202);
   });
 
   test("404 when the hook is ambiguous", async () => {

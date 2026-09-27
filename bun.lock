@@ -16,6 +16,7 @@
         "hono": "4.11.9",
         "oxfmt": "0.70.0",
         "oxlint": "1.85.0",
+        "postgres": "3.4.9",
         "typescript": "5.9.3",
       },
       "peerDependencies": {
@@ -25,6 +26,7 @@
         "@intx/hub-common": "^0.4.0",
         "@intx/mime": "^0.4.0",
         "@intx/types": "^0.4.0",
+        "drizzle-orm": "^0.45.1",
         "hono": "^4.11.9",
       },
     },

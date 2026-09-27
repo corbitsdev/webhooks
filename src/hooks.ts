@@ -4,7 +4,13 @@ import { bodyLimit } from "hono/body-limit";
 import type { MailDeliverer } from "./deliver.js";
 import type { LoadedHook, LiveRun } from "./resolve.js";
 import { pickDestination } from "./resolve.js";
-import { verifyBearer, verifySlack, verifyStandardWebhooks } from "./verify.js";
+import type { ReplayStore } from "./replay.js";
+import {
+  TIMESTAMP_TOLERANCE_S,
+  verifyBearer,
+  verifySlack,
+  verifyStandardWebhooks,
+} from "./verify.js";
 
 export type LoadHook = (
   id: string,
@@ -13,14 +19,17 @@ export type LoadHook = (
 
 export type ListRuns = (tenantId: string) => Promise<LiveRun[]>;
 
-/** Largest request body accepted, checked before anything is hashed. */
-export const MAX_BODY_BYTES = 1024 * 1024;
-
-export function createHookApp(opts: {
+type HookAppOptions = {
   deliver: MailDeliverer;
   loadHook: LoadHook;
   listRuns: ListRuns;
-}): Hono {
+  replay: ReplayStore;
+};
+
+/** Largest request body accepted, checked before anything is hashed. */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+export function createHookApp(opts: HookAppOptions): Hono {
   const app = new Hono();
   app.use(
     bodyLimit({
@@ -34,14 +43,7 @@ export function createHookApp(opts: {
   return app;
 }
 
-async function handle(
-  c: Context,
-  opts: {
-    deliver: MailDeliverer;
-    loadHook: LoadHook;
-    listRuns: ListRuns;
-  },
-) {
+async function handle(c: Context, opts: HookAppOptions) {
   const pathTenant = emptyToUndef(c.req.param("tenantId"));
   const pathName = emptyToUndef(c.req.param("name"));
   const id =
@@ -91,6 +93,62 @@ async function handle(
     return c.json({ error: "unsupported_body" }, 415);
   }
 
+  const replayKey = replayClaim(loaded, c.req.raw.headers);
+  if (replayKey !== undefined) {
+    let fresh: boolean;
+    try {
+      fresh = await opts.replay.claim(
+        loaded.credentialId,
+        replayKey.nonce,
+        replayKey.expiresAt,
+      );
+    } catch {
+      return c.json({ error: "replay_error" }, 500);
+    }
+    if (!fresh) return c.json({ error: "replayed" }, 409);
+  }
+
+  const res = await forward(c, opts, loaded, body);
+  // A failed delivery must not burn the id, or the sender's retry is lost.
+  if (!res.ok && replayKey !== undefined) {
+    await opts.replay
+      .release(loaded.credentialId, replayKey.nonce)
+      .catch(() => undefined);
+  }
+  return res;
+}
+
+/**
+ * Standard Webhooks senders reuse `webhook-id` across retries; Slack has no id,
+ * so its signature stands in. Each key lives as long as its timestamp would
+ * still verify. Bearer hooks carry no nonce and cannot be deduplicated.
+ */
+function replayClaim(
+  loaded: LoadedHook,
+  headers: Headers,
+): { nonce: string; expiresAt: Date } | undefined {
+  const [nonce, timestamp] =
+    loaded.meta.verify === "standard-webhooks"
+      ? [headers.get("webhook-id"), headers.get("webhook-timestamp")]
+      : loaded.meta.verify === "slack"
+        ? [
+            headers.get("x-slack-signature"),
+            headers.get("x-slack-request-timestamp"),
+          ]
+        : [];
+  if (!nonce || !timestamp) return undefined;
+  return {
+    nonce: `${loaded.meta.verify}:${nonce}`,
+    expiresAt: new Date((Number(timestamp) + TIMESTAMP_TOLERANCE_S) * 1000),
+  };
+}
+
+async function forward(
+  c: Context,
+  opts: HookAppOptions,
+  loaded: LoadedHook,
+  body: string,
+): Promise<Response> {
   if (loaded.meta.verify === "slack") {
     const challenge = slackChallenge(body);
     if (challenge !== undefined) {

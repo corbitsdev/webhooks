@@ -4,7 +4,7 @@ Signed webhook ingress for Interchange workflows: verifies a Slack, Standard Web
 
 ## Why @corbits/webhooks?
 
-1. **Secrets stay in the hub.** Each hook is an ordinary Interchange credential with `metadata.webhook`; this package stores nothing of its own.
+1. **Secrets stay in the hub.** Each hook is an ordinary Interchange credential with `metadata.webhook`. The only thing this package stores is a short-lived table of seen delivery ids.
 2. **Runs never borrow a person's authority.** The workflow runs as its own run principal (the identity Interchange derives for each run) through the hub's mail-triggered grant path, never as the credential owner.
 3. **Three verifiers, no unsigned mode.** Slack signatures, Standard Webhooks HMAC and bearer tokens. A credential without a verifier matches no hook.
 
@@ -14,10 +14,10 @@ Use it to start workflows from third-party events. It does not fire on a schedul
 
 ```bash
 bun add @corbits/webhooks \
-  @intx/crypto @intx/db @intx/hub-api @intx/hub-common @intx/mime @intx/types hono
+  @intx/crypto @intx/db @intx/hub-api @intx/hub-common @intx/mime @intx/types drizzle-orm hono postgres
 ```
 
-The `@intx/*` peers are `^0.4.0`; `hono` is `^4.11.9`.
+The `@intx/*` peers are `^0.4.0`, `drizzle-orm` is `^0.45.1`, `hono` is `^4.11.9` and `postgres` is `^3.4.8`.
 
 ## Where it fits
 
@@ -49,6 +49,8 @@ With neither set, the credential name is matched against definition and asset na
 
 With `standard-webhooks`, the secret is base64-decoded after stripping an optional `whsec_` prefix, as the spec requires. An unprefixed secret also verifies when the sender used it as raw bytes, which is how 0.1 read it. `bearer` rejects an empty secret.
 
+A replayed delivery gets `409`. Standard Webhooks deliveries are keyed on the credential and `webhook-id`, Slack on the credential and signature, each kept until its timestamp leaves the ±300s window. The seen-set is the `replay` table in the `webhooks` schema, created by `runWebhookMigrations` (see [Using with Interchange](#using-with-interchange)), so every replica sharing the database rejects the replay. A failed delivery releases its key so the sender's retry goes through. Bearer requests carry no id and are not deduplicated.
+
 Signatures are checked over the raw request bytes, and the body is forwarded unchanged. Bodies over 1 MiB get `413`; a verified body that is not UTF-8 gets `415`. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
 
 ### Exports
@@ -64,23 +66,32 @@ Signatures are checked over the raw request bytes, and the body is forwarded unc
 | `HookMailRouter`                                      | Router type the host passes in: `routeMail` and `sendRunGrants`.           |
 | `MailDeliverer`                                       | `{ to(address, content, tenantId, subject) }`, what the deliverer returns. |
 
+### `runWebhookMigrations(dbConfig, { schema })`
+
+From `@corbits/webhooks/migrations`. Run it after Interchange's `runMigrations`, with the same config and the same `schema`: the host schema that holds the `credential` table. The `replay` table always lives in the `webhooks` schema. It is idempotent and takes an advisory lock, so several replicas can start at once.
+
 ## Using with Interchange
 
-Build the routes from the hub's database, credential cipher and principal key store:
+Run `runWebhookMigrations` at hub start, after `runMigrations`, then build the routes from the hub's database, credential cipher and principal key store:
 
 ```ts
 import { createEnvKeyCredentialCipher } from "@intx/crypto";
-import { createDB, createPrincipalKeyStore } from "@intx/db";
+import { createDB, createPrincipalKeyStore, runMigrations } from "@intx/db";
 import { hexDecode } from "@intx/types";
 import { createHookRoutes, type HookMailRouter } from "@corbits/webhooks";
+import { runWebhookMigrations } from "@corbits/webhooks/migrations";
 
-const { db } = createDB({
+const dbConfig = {
   host: "localhost",
   port: 5432,
   user: "postgres",
   password: "postgres",
   database: "interchange",
-});
+};
+await runMigrations(dbConfig, { schema: "public" });
+await runWebhookMigrations(dbConfig, { schema: "public" });
+
+const { db } = createDB(dbConfig);
 
 export const hookRoutes = (router: HookMailRouter) =>
   createHookRoutes({
@@ -136,6 +147,7 @@ The hub answers `202 { "ok": true, "to": "run_…@acme.example" }` and the run s
 
 - `installWebhooks(opts)` is removed. Call `app.route("/api/hooks", createHookRoutes(deps))` with the same `db`, `credentialCipher`, `principalKeyStore` and `router`; drop `app` from the options.
 - `@intx/*` and `hono` moved to peer dependencies. Add them to the host.
+- Run `runWebhookMigrations` at hub start, after `runMigrations`; replay protection needs its table.
 - Existing hook credentials and URLs keep working unchanged when the routes stay mounted at `/api/hooks`.
 
 ## License
