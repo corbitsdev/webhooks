@@ -7,32 +7,39 @@ import {
   createRunTriggerDeliverer,
   type HookMailRouter,
 } from "./deliver.js";
-import { createHookRoutes } from "./hooks.js";
+import { createHookApp } from "./hooks.js";
 import { createTenantSystemSender } from "./system-sender.js";
 import { listLiveMailRuns, loadWebhook } from "./resolve.js";
 
-export type InstallWebhooksOpts = {
-  app: { route(path: string, handler: Hono): unknown };
+export type CreateHookRoutesDeps = {
   db: DB["db"];
   credentialCipher: CredentialCipher;
   principalKeyStore: PrincipalKeyStore;
   router: HookMailRouter;
 };
 
-/** Mount POST /api/hooks. Credentials stay Interchange's; trigger is the run principal. */
-export async function installWebhooks(
-  opts: InstallWebhooksOpts,
-): Promise<void> {
+/**
+ * Signature-authenticated hook ingress. Credentials stay Interchange's; the
+ * trigger fires as the run principal. Mount it outside the host's session
+ * and tenant middleware: senders carry a signature, not a session, and the
+ * tenant comes from the hook's credential.
+ */
+export function createHookRoutes({
+  db,
+  credentialCipher,
+  principalKeyStore,
+  router,
+}: CreateHookRoutesDeps): Hono {
   const materialize = createMailTriggeredRunGrantsMaterializer({
-    db: opts.db,
-    principalKeyStore: opts.principalKeyStore,
-    grantStore: createGrantStore(opts.db),
+    db,
+    principalKeyStore,
+    grantStore: createGrantStore(db),
   });
   const deliver = createRunTriggerDeliverer({
-    router: opts.router,
+    router,
     materialize,
     tenantDomain: async (tenantId) => {
-      const row = await opts.db.query.tenant.findFirst({
+      const row = await db.query.tenant.findFirst({
         where: (t, { eq }) => eq(t.id, tenantId),
       });
       if (!row) throw new Error("tenant not found");
@@ -40,17 +47,14 @@ export async function installWebhooks(
     },
     senderLocalPart: "webhook",
     systemSender: createTenantSystemSender({
-      db: opts.db,
-      principalKeyStore: opts.principalKeyStore,
+      db,
+      principalKeyStore,
     }),
   });
-  opts.app.route(
-    "/api/hooks",
-    createHookRoutes({
-      deliver,
-      loadHook: (id, tenantHint) =>
-        loadWebhook(opts.db, opts.credentialCipher, id, tenantHint),
-      listRuns: (tenantId) => listLiveMailRuns(opts.db, tenantId),
-    }),
-  );
+  return createHookApp({
+    deliver,
+    loadHook: (id, tenantHint) =>
+      loadWebhook(db, credentialCipher, id, tenantHint),
+    listRuns: (tenantId) => listLiveMailRuns(db, tenantId),
+  });
 }

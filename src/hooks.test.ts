@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { createHookRoutes } from "./hooks.js";
+import { createHookApp } from "./hooks.js";
 import type { LoadedHook, LiveRun } from "./resolve.js";
 
 const JIMMY: LiveRun = {
@@ -31,7 +31,7 @@ function mount(opts?: {
   const app = new Hono();
   app.route(
     "/api/hooks",
-    createHookRoutes({
+    createHookApp({
       loadHook: async () => opts?.loaded,
       listRuns: async () => opts?.runs ?? [],
       deliver: {
@@ -48,7 +48,7 @@ function mount(opts?: {
   return { app, delivered };
 }
 
-describe("createHookRoutes", () => {
+describe("createHookApp", () => {
   test("404 without a hook id", async () => {
     const { app } = mount({ loaded: undefined });
     const res = await app.request("/api/hooks", { method: "POST", body: "{}" });

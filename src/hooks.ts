@@ -16,7 +16,7 @@ export type LoadHook = (
 
 export type ListRuns = (tenantId: string) => Promise<LiveRun[]>;
 
-export function createHookRoutes(opts: {
+export function createHookApp(opts: {
   deliver: MailDeliverer;
   loadHook: LoadHook;
   listRuns: ListRuns;

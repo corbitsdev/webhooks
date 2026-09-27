@@ -1,4 +1,4 @@
-export { installWebhooks, type InstallWebhooksOpts } from "./install.js";
+export { createHookRoutes, type CreateHookRoutesDeps } from "./routes.js";
 export {
   createRunTriggerDeliverer,
   isRunTriggerUnroutable,
