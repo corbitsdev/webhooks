@@ -47,9 +47,9 @@ Responses: `202` delivered, `200 { challenge }` for Slack `url_verification`, `4
 
 With neither set, the credential name is matched against definition and asset names, then the tenant's only live run. A live run has status `deployed` or `running`.
 
-With `standard-webhooks`, the secret is base64-decoded after stripping an optional `whsec_` prefix, as the spec requires. An unprefixed secret also verifies when the sender used it as raw bytes, which is how 0.1 read it. `bearer` rejects an empty secret.
+With `standard-webhooks`, the secret is base64-decoded after stripping an optional `whsec_` prefix, as the spec requires. An unprefixed secret that is valid base64 is tried decoded first, then as raw bytes, which is how 0.1 read it; one that is not base64 is only tried raw. An empty secret never verifies, under any scheme.
 
-A replayed delivery gets `409`. Standard Webhooks deliveries are keyed on the credential and `webhook-id`, Slack on the credential and signature, each kept until its timestamp leaves the ±300s window. The seen-set is the `replay` table in the `webhooks` schema, created by `runWebhookMigrations` (see [Using with Interchange](#using-with-interchange)), so every replica sharing the database rejects the replay. A failed delivery releases its key so the sender's retry goes through. Bearer requests carry no id and are not deduplicated.
+A replayed delivery gets `409`. Standard Webhooks deliveries are keyed on the credential and `webhook-id`, Slack on the credential and signature, each kept until its timestamp leaves the ±300s window. The seen-set is the `replay` table in the `webhooks` schema, created by `runWebhookMigrations` (see [Using with Interchange](#using-with-interchange)), so every replica sharing the database rejects the replay. A failed delivery releases its key so the sender's retry goes through. If the hub crashes between claiming a key and forwarding the delivery, the key stays held until it expires with its timestamp window, so the sender's retries get `409` until then. Bearer requests carry no id and are not deduplicated.
 
 Signatures are checked over the raw request bytes, and the body is forwarded unchanged. Bodies over 1 MiB get `413`; a verified body that is not UTF-8 gets `415`. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
 
