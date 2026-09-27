@@ -106,8 +106,8 @@ async function seedDeployment(db: TestDb["db"]): Promise<void> {
 
 async function standardWebhooksHeaders(
   body: string,
+  id = `msg_${crypto.randomUUID()}`,
 ): Promise<Record<string, string>> {
-  const id = "msg_1";
   const timestamp = String(Math.floor(Date.now() / 1000));
   const key = await crypto.subtle.importKey(
     "raw",
@@ -201,6 +201,29 @@ describe.skipIf(!harnessDbAvailable())(
       const [frame] = recorded.grants;
       expect(frame?.[0]).toBe(ADDRESS);
       expect(frame?.[2]).toHaveLength(1);
+      expect(recorded.mail).toHaveLength(1);
+    });
+
+    test("a replayed delivery is 409 on every replica", async () => {
+      const recorded = recordingRouter();
+      const replicaA = mountHookRoutes({ db: db(), router: recorded.router });
+      const replicaB = mountHookRoutes({ db: db(), router: recorded.router });
+      const body = `{"text":"hi"}`;
+      const headers = await standardWebhooksHeaders(body);
+
+      const first = await replicaA.request(`/api/hooks/${HOOK}`, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const replay = await replicaB.request(`/api/hooks/${HOOK}`, {
+        method: "POST",
+        headers,
+        body,
+      });
+
+      expect(first.status).toBe(202);
+      expect(replay.status).toBe(409);
       expect(recorded.mail).toHaveLength(1);
     });
 

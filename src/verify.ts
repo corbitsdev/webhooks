@@ -2,6 +2,9 @@ export const HOOK_VERIFY = ["bearer", "standard-webhooks", "slack"] as const;
 
 export type HookVerify = (typeof HOOK_VERIFY)[number];
 
+/** Accepted clock skew, in seconds, either side of a signed timestamp. */
+export const TIMESTAMP_TOLERANCE_S = 300;
+
 export function timingEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -52,7 +55,10 @@ export async function verifyStandardWebhooks(
   const signature = headers.get("webhook-signature");
   if (!id || !timestamp || !signature) return false;
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {
+  if (
+    !Number.isFinite(ts) ||
+    Math.abs(Date.now() / 1000 - ts) > TIMESTAMP_TOLERANCE_S
+  ) {
     return false;
   }
   const candidates = signature.split(/\s+/).flatMap((part) => {
@@ -86,7 +92,10 @@ export async function verifySlack(
   const signature = headers.get("x-slack-signature");
   if (!timestamp || !signature) return false;
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {
+  if (
+    !Number.isFinite(ts) ||
+    Math.abs(Date.now() / 1000 - ts) > TIMESTAMP_TOLERANCE_S
+  ) {
     return false;
   }
   const mac = await hmacSha256(

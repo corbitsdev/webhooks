@@ -5,6 +5,7 @@ import type { CredentialCipher } from "@intx/types";
 
 import { createRunTriggerDeliverer, type HookMailRouter } from "./deliver.js";
 import { createHookApp } from "./hooks.js";
+import { createPostgresReplayStore } from "./replay.js";
 import { createTenantSystemSender } from "./system-sender.js";
 import { listLiveMailRuns, loadWebhook } from "./resolve.js";
 
@@ -53,5 +54,6 @@ export function createHookRoutes({
     loadHook: (id, tenantHint) =>
       loadWebhook(db, credentialCipher, id, tenantHint),
     listRuns: (tenantId) => listLiveMailRuns(db, tenantId),
+    replay: createPostgresReplayStore(db),
   });
 }
