@@ -47,7 +47,9 @@ Responses: `202` delivered, `200 { challenge }` for Slack `url_verification`, `4
 
 With neither set, the credential name is matched against definition and asset names, then the tenant's only live run. A live run has status `deployed` or `running`.
 
-With `standard-webhooks`, a `whsec_…` secret is base64-decoded before use as the HMAC key; any other secret is used as-is. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
+With `standard-webhooks`, the secret is base64-decoded after stripping an optional `whsec_` prefix, as the spec requires. An unprefixed secret also verifies when the sender used it as raw bytes, which is how 0.1 read it. `bearer` rejects an empty secret.
+
+Signatures are checked over the raw request bytes, and the body is forwarded unchanged. Bodies over 1 MiB get `413`; a verified body that is not UTF-8 gets `415`. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
 
 ### Exports
 

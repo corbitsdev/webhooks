@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { createHookApp } from "./hooks.js";
+import { createHookApp, MAX_BODY_BYTES } from "./hooks.js";
 import type { LoadedHook, LiveRun } from "./resolve.js";
 
 const JIMMY: LiveRun = {
@@ -207,6 +207,49 @@ describe("createHookApp", () => {
       headers: { authorization: "Bearer s3cret" },
     });
     expect(res.status).toBe(503);
+  });
+
+  test("413s a body over the size limit before verifying", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({ meta: { verify: "bearer", to: JIMMY.address } }),
+      runs: [JIMMY],
+    });
+    const res = await app.request("/api/hooks/slack", {
+      method: "POST",
+      body: "x".repeat(MAX_BODY_BYTES + 1),
+      headers: { authorization: "Bearer s3cret" },
+    });
+    expect(res.status).toBe(413);
+    expect(delivered).toEqual([]);
+  });
+
+  test("forwards the verified body unchanged", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({ meta: { verify: "bearer", to: JIMMY.address } }),
+      runs: [JIMMY],
+    });
+    const body = '  {"n":"é"}\r\n';
+    const res = await app.request("/api/hooks/slack", {
+      method: "POST",
+      body: new TextEncoder().encode(body),
+      headers: { authorization: "Bearer s3cret" },
+    });
+    expect(res.status).toBe(202);
+    expect(delivered[0]?.content).toBe(body);
+  });
+
+  test("415s a verified body that is not UTF-8", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({ meta: { verify: "bearer", to: JIMMY.address } }),
+      runs: [JIMMY],
+    });
+    const res = await app.request("/api/hooks/slack", {
+      method: "POST",
+      body: new Uint8Array([0x7b, 0xe9, 0x7d]),
+      headers: { authorization: "Bearer s3cret" },
+    });
+    expect(res.status).toBe(415);
+    expect(delivered).toEqual([]);
   });
 
   test("404 when the hook is ambiguous", async () => {
