@@ -104,6 +104,29 @@ describe("verifyStandardWebhooks", () => {
   });
 });
 
+describe("zero-length signing keys", () => {
+  test.each(["", "whsec_"])(
+    "standard-webhooks rejects the empty secret %p instead of throwing",
+    async (secret) => {
+      const body = bytes("{}");
+      const headers = new Headers({
+        "webhook-id": "evt_1",
+        "webhook-timestamp": now(),
+        "webhook-signature": "v1,AAAA",
+      });
+      expect(await verifyStandardWebhooks(secret, headers, body)).toBe(false);
+    },
+  );
+
+  test("slack rejects an empty secret instead of throwing", async () => {
+    const headers = new Headers({
+      "x-slack-request-timestamp": now(),
+      "x-slack-signature": "v0=00",
+    });
+    expect(await verifySlack("", headers, bytes("{}"))).toBe(false);
+  });
+});
+
 describe("verifyBearer", () => {
   test("accepts Authorization Bearer", () => {
     const headers = new Headers({ authorization: "Bearer s3cret" });

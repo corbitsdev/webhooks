@@ -65,7 +65,9 @@ export async function verifyStandardWebhooks(
     const [ver, val] = part.split(",", 2);
     return ver === "v1" && val !== undefined && val !== "" ? [val] : [];
   });
-  for (const key of standardWebhooksKeys(secret)) {
+  // A zero-length HMAC key is unusable (WebCrypto throws), so it never matches.
+  const keys = standardWebhooksKeys(secret).filter((key) => key.length > 0);
+  for (const key of keys) {
     const mac = await hmacSha256(key, `${id}.${timestamp}.`, body);
     const expected = mac.toString("base64");
     if (candidates.some((c) => timingEqual(c, expected))) return true;
@@ -90,7 +92,7 @@ export async function verifySlack(
 ): Promise<boolean> {
   const timestamp = headers.get("x-slack-request-timestamp");
   const signature = headers.get("x-slack-signature");
-  if (!timestamp || !signature) return false;
+  if (secret === "" || !timestamp || !signature) return false;
   const ts = Number(timestamp);
   if (
     !Number.isFinite(ts) ||
