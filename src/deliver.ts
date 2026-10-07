@@ -20,13 +20,13 @@ export type HookMailRouter = {
     rawMessage: string,
     authenticatedSender: string,
     messageId?: string,
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
   sendRunGrants: (
     address: string,
     runId: string,
     stepGrants: RunGrantsFrame["stepGrants"],
     senderIdentities: RunGrantsFrame["senderIdentities"],
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
 };
 
 export type RunTriggerMaterialize = ReturnType<
@@ -130,11 +130,13 @@ export function createRunTriggerDeliverer(
       // Co-deliver the system sender's durable key on the grants barrier so
       // the recipient can verify the trigger mail against the key the hub
       // vouches for, exactly as a person-originated trigger does.
-      if (
-        !opts.router.sendRunGrants(address, runId, grants.stepGrants, [
-          { address: sender.address, publicKey: sender.publicKey },
-        ])
-      ) {
+      const grantsRouted = await opts.router.sendRunGrants(
+        address,
+        runId,
+        grants.stepGrants,
+        [{ address: sender.address, publicKey: sender.publicKey }],
+      );
+      if (!grantsRouted) {
         throw new RunTriggerUnroutableError(
           RUN_GRANTS_NOT_ROUTABLE,
           address,
@@ -150,14 +152,13 @@ export function createRunTriggerDeliverer(
         subject,
         sender,
       });
-      if (
-        !opts.router.routeMail(
-          address,
-          raw.base64,
-          sender.address,
-          raw.messageId,
-        )
-      ) {
+      const mailRouted = await opts.router.routeMail(
+        address,
+        raw.base64,
+        sender.address,
+        raw.messageId,
+      );
+      if (!mailRouted) {
         throw new RunTriggerUnroutableError(
           RUN_MAIL_NOT_ROUTABLE,
           address,

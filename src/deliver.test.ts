@@ -47,7 +47,7 @@ function recordingRouter() {
   return {
     grants,
     mail,
-    router: {
+    router: <HookMailRouter>{
       routeMail: (
         _address: string,
         rawMessage: string,
@@ -201,6 +201,41 @@ describe("createRunTriggerDeliverer", () => {
     expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
     // The grants barrier went out before the mail leg failed.
     expect(recorded.grants).toHaveLength(1);
+  });
+
+  test("an async router answering false for grants is unroutable", async () => {
+    const sender = await durableSystemSender();
+    const recorded = recordingRouter();
+    recorded.router.sendRunGrants = async () => false;
+    const error = await deliverer(recorded.router, sender.sender)
+      .to(ADDRESS, "tick", "tnt_1", undefined)
+      .then(
+        () => {
+          throw new Error("the dead run delivered");
+        },
+        (e: unknown) => e,
+      );
+
+    expect(isRunTriggerUnroutable(error)).toBe(true);
+    expect((error as { code: string }).code).toBe(RUN_GRANTS_NOT_ROUTABLE);
+    expect(recorded.mail).toEqual([]);
+  });
+
+  test("an async router answering false for mail is unroutable", async () => {
+    const sender = await durableSystemSender();
+    const recorded = recordingRouter();
+    recorded.router.routeMail = async () => false;
+    const error = await deliverer(recorded.router, sender.sender)
+      .to(ADDRESS, "tick", "tnt_1", undefined)
+      .then(
+        () => {
+          throw new Error("the dead run delivered");
+        },
+        (e: unknown) => e,
+      );
+
+    expect(isRunTriggerUnroutable(error)).toBe(true);
+    expect((error as { code: string }).code).toBe(RUN_MAIL_NOT_ROUTABLE);
   });
 
   test("rejected grants deliver nothing", async () => {
