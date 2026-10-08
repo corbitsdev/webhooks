@@ -1,6 +1,6 @@
 {
   "name": "@corbits/webhooks",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Receive signed webhooks (Slack, Standard Webhooks, bearer) and start a workflow run.",
   "keywords": [
     "corbits",
