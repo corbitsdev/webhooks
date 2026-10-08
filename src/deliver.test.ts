@@ -5,9 +5,10 @@ import { hexEncode } from "@intx/types";
 import {
   createRunTriggerDeliverer,
   isRunTriggerUnroutable,
+  RUN_MAIL_NOT_ROUTABLE,
+  RunTriggerUnroutableError,
 } from "./deliver.js";
-import { RUN_GRANTS_NOT_ROUTABLE, RUN_MAIL_NOT_ROUTABLE } from "./deliver.js";
-import type { HookMailRouter } from "./deliver.js";
+import type { HookRouter } from "./deliver.js";
 import type { SystemSender } from "./system-sender.js";
 
 const ADDRESS = "run_0123456789abcdef@localhost";
@@ -39,40 +40,17 @@ async function durableSystemSender() {
 }
 
 function recordingRouter() {
-  const grants: {
-    address: string;
-    senderIdentities: Parameters<HookMailRouter["sendRunGrants"]>[3];
-  }[] = [];
-  const mail: { authenticatedSender: string; rawMessage: string }[] = [];
-  return {
-    grants,
-    mail,
-    router: {
-      routeMail: (
-        _address: string,
-        rawMessage: string,
-        authenticatedSender: string,
-      ) => {
-        mail.push({ authenticatedSender, rawMessage });
-        return true;
-      },
-      sendRunGrants: (
-        address: string,
-        _runId: string,
-        _stepGrants: Parameters<HookMailRouter["sendRunGrants"]>[2],
-        senderIdentities: Parameters<HookMailRouter["sendRunGrants"]>[3],
-      ) => {
-        grants.push({ address, senderIdentities });
-        return true;
-      },
+  const calls: Parameters<HookRouter["routeMail"]>[] = [];
+  const router: HookRouter = {
+    routeMail: (...args) => {
+      calls.push(args);
+      return true;
     },
   };
+  return { calls, router };
 }
 
-function deliverer(
-  router: ReturnType<typeof recordingRouter>["router"],
-  systemSender: SystemSender,
-) {
+function deliverer(router: HookRouter, systemSender: SystemSender) {
   return createRunTriggerDeliverer({
     router,
     materialize: async () => ({ outcome: "materialized", stepGrants: [] }),
@@ -93,9 +71,9 @@ describe("createRunTriggerDeliverer", () => {
       "cron",
     );
 
-    const [frame] = recorded.mail;
-    expect(frame?.authenticatedSender).toBe("cron@localhost");
-    const raw = Buffer.from(frame?.rawMessage ?? "", "base64").toString("utf8");
+    const [call] = recorded.calls;
+    expect(call?.[2]).toBe("cron@localhost");
+    const raw = Buffer.from(call?.[1] ?? "", "base64").toString("utf8");
     // The recipient rejects a valid signature worn under a different From.
     expect(raw).toContain("From: cron@localhost");
   });
@@ -110,9 +88,9 @@ describe("createRunTriggerDeliverer", () => {
       undefined,
     );
 
-    const [barrier] = recorded.grants;
-    expect(barrier?.address).toBe(ADDRESS);
-    expect(barrier?.senderIdentities).toEqual([
+    const [call] = recorded.calls;
+    expect(call?.[0]).toBe(ADDRESS);
+    expect(call?.[4]?.senderIdentities).toEqual([
       {
         address: "cron@localhost",
         publicKey: hexEncode(sender.keyPair.publicKey),
@@ -137,12 +115,12 @@ describe("createRunTriggerDeliverer", () => {
     await deliver.to(ADDRESS, "two", "tnt_1", undefined);
 
     expect(sender.resolveCount()).toBe(2);
-    const keys = recorded.grants.map((g) => g.senderIdentities?.[0]?.publicKey);
+    const keys = recorded.calls.map(
+      (c) => c[4]?.senderIdentities?.[0]?.publicKey,
+    );
     expect(keys[0]).toBe(hexEncode(sender.keyPair.publicKey));
     expect(keys[1]).toBe(keys[0]);
-    expect(
-      recorded.mail.every((m) => m.authenticatedSender === "cron@localhost"),
-    ).toBe(true);
+    expect(recorded.calls.every((c) => c[2] === "cron@localhost")).toBe(true);
   });
 
   test("rejects a destination that is not a run address", async () => {
@@ -158,31 +136,33 @@ describe("createRunTriggerDeliverer", () => {
     ).rejects.toThrow("not a live run address");
   });
 
-  test("a dead run address fails with its run identity, not a bare string", async () => {
+  test("hands the run grants to the router in the one routeMail call", async () => {
     const sender = await durableSystemSender();
     const recorded = recordingRouter();
-    recorded.router.sendRunGrants = () => false;
-    const error = await deliverer(recorded.router, sender.sender)
-      .to(ADDRESS, "tick", "tnt_1", undefined)
-      .then(
-        () => {
-          throw new Error("the dead run delivered");
-        },
-        (e: unknown) => e,
-      );
+    const stepGrants = [{ stepId: "s1" }] as never;
+    const deliver = createRunTriggerDeliverer({
+      router: recorded.router,
+      materialize: async () => ({ outcome: "materialized", stepGrants }),
+      tenantDomain: async () => "localhost",
+      senderLocalPart: "cron",
+      systemSender: sender.sender,
+    });
+    await deliver.to(ADDRESS, "tick", "tnt_1", undefined);
 
-    expect(isRunTriggerUnroutable(error)).toBe(true);
-    expect((error as { code: string }).code).toBe(RUN_GRANTS_NOT_ROUTABLE);
-    expect((error as { address: string }).address).toBe(ADDRESS);
-    expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
-    expect(String((error as Error).message)).toContain(
-      "run grants not routable",
-    );
-    // The grants barrier never went out, so no mail follows it.
-    expect(recorded.mail).toEqual([]);
+    expect(recorded.calls).toHaveLength(1);
+    expect(recorded.calls[0]?.[4]).toEqual({
+      runId: "run_0123456789abcdef",
+      stepGrants,
+      senderIdentities: [
+        {
+          address: "cron@localhost",
+          publicKey: hexEncode(sender.keyPair.publicKey),
+        },
+      ],
+    });
   });
 
-  test("unroutable mail after delivered grants names the run too", async () => {
+  test("a dead run address fails with its run identity, not a bare string", async () => {
     const sender = await durableSystemSender();
     const recorded = recordingRouter();
     recorded.router.routeMail = () => false;
@@ -195,12 +175,12 @@ describe("createRunTriggerDeliverer", () => {
         (e: unknown) => e,
       );
 
+    expect(error).toBeInstanceOf(RunTriggerUnroutableError);
     expect(isRunTriggerUnroutable(error)).toBe(true);
     expect((error as { code: string }).code).toBe(RUN_MAIL_NOT_ROUTABLE);
     expect((error as { address: string }).address).toBe(ADDRESS);
     expect((error as { runId: string }).runId).toBe("run_0123456789abcdef");
-    // The grants barrier went out before the mail leg failed.
-    expect(recorded.grants).toHaveLength(1);
+    expect(String((error as Error).message)).toContain("run mail not routable");
   });
 
   test("rejected grants deliver nothing", async () => {
@@ -222,7 +202,6 @@ describe("createRunTriggerDeliverer", () => {
     await expect(
       deliver.to(ADDRESS, "tick", "tnt_1", undefined),
     ).rejects.toThrow("run grants denied");
-    expect(recorded.grants).toEqual([]);
-    expect(recorded.mail).toEqual([]);
+    expect(recorded.calls).toEqual([]);
   });
 });

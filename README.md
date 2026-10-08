@@ -61,9 +61,9 @@ Signatures are checked over the raw request bytes, and the body is forwarded unc
 | `createRunTriggerDeliverer(opts)`                     | Delivers trigger mail to a live run as its run principal.                  |
 | `createTenantSystemSender({ db, principalKeyStore })` | Durable per-tenant sender (`<localPart>@domain`) that signs trigger mail.  |
 | `isRunTriggerUnroutable(error)`                       | Narrows to `{ code, address, runId }` when the router has no route.        |
-| `RUN_GRANTS_NOT_ROUTABLE`, `RUN_MAIL_NOT_ROUTABLE`    | The two `code` values.                                                     |
+| `RUN_MAIL_NOT_ROUTABLE`                               | The error `code`.                                                          |
 | `RunTriggerUnroutableError`                           | The error `isRunTriggerUnroutable` matches.                                |
-| `HookMailRouter`                                      | Router type the host passes in: `routeMail` and `sendRunGrants`.           |
+| `HookRouter`                                          | `Pick<SidecarRouter, "routeMail">`, the router the host passes in.         |
 | `MailDeliverer`                                       | `{ to(address, content, tenantId, subject) }`, what the deliverer returns. |
 
 ### `runWebhookMigrations(dbConfig, { schema })`
@@ -78,7 +78,7 @@ Run `runWebhookMigrations` at hub start, after `runMigrations`, then build the r
 import { createEnvKeyCredentialCipher } from "@intx/crypto";
 import { createDB, createPrincipalKeyStore, runMigrations } from "@intx/db";
 import { hexDecode } from "@intx/types";
-import { createHookRoutes, type HookMailRouter } from "@corbits/webhooks";
+import { createHookRoutes, type HookRouter } from "@corbits/webhooks";
 import { runWebhookMigrations } from "@corbits/webhooks/migrations";
 
 const dbConfig = {
@@ -93,7 +93,7 @@ await runWebhookMigrations(dbConfig, { schema: "public" });
 
 const { db } = createDB(dbConfig);
 
-export const hookRoutes = (router: HookMailRouter) =>
+export const hookRoutes = (router: HookRouter) =>
   createHookRoutes({
     db,
     credentialCipher: createEnvKeyCredentialCipher(
@@ -142,6 +142,13 @@ curl -X POST "$HUB/api/hooks/crd_…" \
 ```
 
 The hub answers `202 { "ok": true, "to": "run_…@acme.example" }` and the run starts.
+
+## Upgrading from 0.2
+
+- `HookMailRouter` is replaced by `HookRouter`, `Pick<SidecarRouter, "routeMail">` from `@intx/hub-sessions`. Pass the hub's sidecar router as before; `sendRunGrants` is no longer used.
+- Run grants and trigger mail go out in one `routeMail` call, so `RUN_GRANTS_NOT_ROUTABLE` and `RunTriggerUnroutableCode` are removed. Every unroutable delivery throws `RunTriggerUnroutableError` with `code` `RUN_MAIL_NOT_ROUTABLE`, and `new RunTriggerUnroutableError(address, runId)` no longer takes a code.
+- `isRunTriggerUnroutable` uses `instanceof`; every consumer must resolve one copy of `@corbits/webhooks`.
+- `@intx/hub-sessions` is a new peer dependency.
 
 ## Upgrading from 0.1
 
