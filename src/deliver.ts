@@ -1,7 +1,7 @@
 import { createDetachedSignatureWithSigner } from "@intx/crypto";
 import { assembleMessage, assembleSignedContent } from "@intx/mime";
 import type { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
-import type { RunGrantsFrame } from "@intx/types/sidecar";
+import type { SidecarRouter } from "@intx/hub-sessions";
 import type { SystemSenderIdentity, SystemSender } from "./system-sender.js";
 import { base64Encode, deriveWorkflowRunId, isRunAddress } from "@intx/types";
 
@@ -14,27 +14,14 @@ export type MailDeliverer = {
   ) => Promise<void>;
 };
 
-export type HookMailRouter = {
-  routeMail: (
-    address: string,
-    rawMessage: string,
-    authenticatedSender: string,
-    messageId?: string,
-  ) => boolean;
-  sendRunGrants: (
-    address: string,
-    runId: string,
-    stepGrants: RunGrantsFrame["stepGrants"],
-    senderIdentities: RunGrantsFrame["senderIdentities"],
-  ) => boolean;
-};
+export type HookRouter = Pick<SidecarRouter, "routeMail">;
 
 export type RunTriggerMaterialize = ReturnType<
   typeof createMailTriggeredRunGrantsMaterializer
 >;
 
 export type CreateRunTriggerDelivererOpts = {
-  router: HookMailRouter;
+  router: HookRouter;
   materialize: RunTriggerMaterialize;
   tenantDomain: (tenantId: string) => Promise<string>;
   /** Local part of the system sender address, e.g. "webhook" or "cron". */
@@ -44,53 +31,32 @@ export type CreateRunTriggerDelivererOpts = {
 };
 
 /** `code` carried by a {@link RunTriggerUnroutableError}. */
-export const RUN_GRANTS_NOT_ROUTABLE = "run_grants_not_routable";
 export const RUN_MAIL_NOT_ROUTABLE = "run_mail_not_routable";
-
-export type RunTriggerUnroutableCode =
-  | typeof RUN_GRANTS_NOT_ROUTABLE
-  | typeof RUN_MAIL_NOT_ROUTABLE;
 
 /**
  * A system trigger the sidecar router could not route: the deployment address
  * has no live socket and no disconnect queue (its sidecar is gone — e.g. a
  * stale `running` anchor left by a previous stack). Carries the address and
  * run id so the caller can report a real failure and settle the dead run
- * instead of logging a bare "not routable" every tick. The message keeps the
- * legacy `run grants not routable` / `run mail not routable` prefix.
+ * instead of logging a bare "not routable" every tick.
  */
 export class RunTriggerUnroutableError extends Error {
-  readonly code: RunTriggerUnroutableCode;
+  readonly code = RUN_MAIL_NOT_ROUTABLE;
   readonly address: string;
   readonly runId: string;
 
-  constructor(code: RunTriggerUnroutableCode, address: string, runId: string) {
-    super(
-      `${code === RUN_GRANTS_NOT_ROUTABLE ? "run grants" : "run mail"} not routable for ${address} (run ${runId})`,
-    );
+  constructor(address: string, runId: string) {
+    super(`run mail not routable for ${address} (run ${runId})`);
     this.name = "RunTriggerUnroutableError";
-    this.code = code;
     this.address = address;
     this.runId = runId;
   }
 }
 
-/**
- * Structural match for a {@link RunTriggerUnroutableError}. Structural — not
- * `instanceof` — so it still matches when a consumer such as `@corbits/cron`
- * resolves its own copy of this package.
- */
 export function isRunTriggerUnroutable(
   error: unknown,
 ): error is RunTriggerUnroutableError {
-  if (typeof error !== "object" || error === null) return false;
-  const rec = error as Record<string, unknown>;
-  return (
-    (rec["code"] === RUN_GRANTS_NOT_ROUTABLE ||
-      rec["code"] === RUN_MAIL_NOT_ROUTABLE) &&
-    typeof rec["address"] === "string" &&
-    typeof rec["runId"] === "string"
-  );
+  return error instanceof RunTriggerUnroutableError;
 }
 
 /**
@@ -127,21 +93,6 @@ export function createRunTriggerDeliverer(
         domain,
         localPart: opts.senderLocalPart,
       });
-      // Co-deliver the system sender's durable key on the grants barrier so
-      // the recipient can verify the trigger mail against the key the hub
-      // vouches for, exactly as a person-originated trigger does.
-      if (
-        !opts.router.sendRunGrants(address, runId, grants.stepGrants, [
-          { address: sender.address, publicKey: sender.publicKey },
-        ])
-      ) {
-        throw new RunTriggerUnroutableError(
-          RUN_GRANTS_NOT_ROUTABLE,
-          address,
-          runId,
-        );
-      }
-
       const raw = await assembleTriggerMail({
         address,
         content,
@@ -150,20 +101,23 @@ export function createRunTriggerDeliverer(
         subject,
         sender,
       });
-      if (
-        !opts.router.routeMail(
-          address,
-          raw.base64,
-          sender.address,
-          raw.messageId,
-        )
-      ) {
-        throw new RunTriggerUnroutableError(
-          RUN_MAIL_NOT_ROUTABLE,
-          address,
+      // Co-deliver the system sender's durable key with the run grants so the
+      // recipient can verify the trigger mail against the key the hub vouches
+      // for, exactly as a person-originated trigger does.
+      const routed = await opts.router.routeMail(
+        address,
+        raw.base64,
+        sender.address,
+        raw.messageId,
+        {
           runId,
-        );
-      }
+          stepGrants: grants.stepGrants,
+          senderIdentities: [
+            { address: sender.address, publicKey: sender.publicKey },
+          ],
+        },
+      );
+      if (!routed) throw new RunTriggerUnroutableError(address, runId);
     },
   };
 }

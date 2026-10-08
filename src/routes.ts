@@ -3,7 +3,7 @@ import { createGrantStore, type DB, type PrincipalKeyStore } from "@intx/db";
 import { createMailTriggeredRunGrantsMaterializer } from "@intx/hub-api";
 import type { CredentialCipher } from "@intx/types";
 
-import { createRunTriggerDeliverer, type HookMailRouter } from "./deliver.js";
+import { createRunTriggerDeliverer, type HookRouter } from "./deliver.js";
 import { createHookApp } from "./hooks.js";
 import { createPostgresReplayStore } from "./replay.js";
 import { createTenantSystemSender } from "./system-sender.js";
@@ -13,7 +13,7 @@ export type CreateHookRoutesDeps = {
   db: DB["db"];
   credentialCipher: CredentialCipher;
   principalKeyStore: PrincipalKeyStore;
-  router: HookMailRouter;
+  router: HookRouter;
 };
 
 /**

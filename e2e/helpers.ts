@@ -10,7 +10,7 @@ import {
 import { createEnvKeyCredentialCipher } from "@intx/crypto";
 import { principal, tenant } from "@intx/db/schema";
 
-import { createHookRoutes, type HookMailRouter } from "../src/index.js";
+import { createHookRoutes, type HookRouter } from "../src/index.js";
 import { runWebhookMigrations } from "../src/migrations.js";
 
 const PG_ENV = [
@@ -95,21 +95,16 @@ export const testCredentialCipher = createEnvKeyCredentialCipher(
   new Uint8Array(32).fill(7),
 );
 
-/** A sidecar router that records every frame and routes all of them. */
+/** A sidecar router that records every call and routes all of them. */
 export function recordingRouter() {
-  const grants: Parameters<HookMailRouter["sendRunGrants"]>[] = [];
-  const mail: Parameters<HookMailRouter["routeMail"]>[] = [];
-  const router: HookMailRouter = {
-    sendRunGrants: (...args) => {
-      grants.push(args);
-      return true;
-    },
+  const mail: Parameters<HookRouter["routeMail"]>[] = [];
+  const router: HookRouter = {
     routeMail: (...args) => {
       mail.push(args);
       return true;
     },
   };
-  return { router, grants, mail };
+  return { router, mail };
 }
 
 /**
@@ -118,7 +113,7 @@ export function recordingRouter() {
  */
 export function mountHookRoutes(opts: {
   db: TestDb["db"];
-  router: HookMailRouter;
+  router: HookRouter;
 }): Hono {
   const app = new Hono();
   app.route(

@@ -172,7 +172,7 @@ describe.skipIf(!harnessDbAvailable())(
       });
 
       expect(res.status).toBe(401);
-      expect(recorded.grants).toEqual([]);
+      expect(recorded.mail).toEqual([]);
       expect(recorded.mail).toEqual([]);
       const { runPrincipals, grants } = await runGrants(db());
       expect(runPrincipals).toEqual([]);
@@ -198,10 +198,10 @@ describe.skipIf(!harnessDbAvailable())(
       expect(grants.map((g) => [g.principalId, g.resource, g.action])).toEqual([
         [runPrincipal?.id ?? "", "tool:read_file", "invoke"],
       ]);
-      const [frame] = recorded.grants;
-      expect(frame?.[0]).toBe(ADDRESS);
-      expect(frame?.[2]).toHaveLength(1);
       expect(recorded.mail).toHaveLength(1);
+      const [call] = recorded.mail;
+      expect(call?.[0]).toBe(ADDRESS);
+      expect(call?.[4]?.stepGrants).toHaveLength(1);
     });
 
     test("a replayed delivery is 409 on every replica", async () => {

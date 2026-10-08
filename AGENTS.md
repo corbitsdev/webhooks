@@ -26,7 +26,7 @@ storage of its own, or scheduling (`@corbits/cron`).
   its own run principal, `deriveRunPrincipalId(tenantId, runId)`, through
   Interchange's mail-triggered grant path, never as the credential owner.
 - Trigger mail is signed by the durable per-tenant system sender
-  (`webhook@domain`), whose key is co-delivered on the run-grants barrier.
+  (`webhook@domain`), whose key is co-delivered with the run grants in the single `routeMail` call.
 - No unsigned mode: a credential without a verifier matches no hook.
 - Unknown hooks and name collisions both answer `404`.
 - `exactOptionalPropertyTypes` is on: omit optional keys, never assign
