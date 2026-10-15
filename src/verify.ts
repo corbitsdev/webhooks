@@ -1,4 +1,9 @@
-export const HOOK_VERIFY = ["bearer", "standard-webhooks", "slack"] as const;
+export const HOOK_VERIFY = [
+  "bearer",
+  "standard-webhooks",
+  "slack",
+  "x-hub-signature",
+] as const;
 
 export type HookVerify = (typeof HOOK_VERIFY)[number];
 
@@ -107,4 +112,15 @@ export async function verifySlack(
   );
   const expected = `v0=${mac.toString("hex")}`;
   return timingEqual(signature, expected);
+}
+
+/** GitHub's `X-Hub-Signature-256` scheme, also Bitbucket Data Center's: `sha256=` and the hex HMAC of the raw body. */
+export async function verifyXHubSignature(
+  secret: string,
+  signature: string | null,
+  body: Uint8Array,
+): Promise<boolean> {
+  if (secret === "" || !signature) return false;
+  const mac = await hmacSha256(new TextEncoder().encode(secret), "", body);
+  return timingEqual(signature, `sha256=${mac.toString("hex")}`);
 }

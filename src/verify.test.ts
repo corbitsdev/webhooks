@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { verifyBearer, verifySlack, verifyStandardWebhooks } from "./verify.js";
+import { createHmac } from "node:crypto";
+
+import {
+  verifyBearer,
+  verifySlack,
+  verifyStandardWebhooks,
+  verifyXHubSignature,
+} from "./verify.js";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -183,5 +190,23 @@ describe("verifySlack", () => {
     expect(await verifySlack("signing-secret", headers, bytes("{}"))).toBe(
       false,
     );
+  });
+});
+
+describe("verifyXHubSignature", () => {
+  const body = `{"action":"opened"}`;
+  const signed = `sha256=${createHmac("sha256", "s3cret").update(body).digest("hex")}`;
+
+  test("accepts the hex HMAC of the raw body", async () => {
+    expect(await verifyXHubSignature("s3cret", signed, bytes(body))).toBe(true);
+  });
+
+  test("rejects a wrong secret, prefix or missing header", async () => {
+    expect(await verifyXHubSignature("other", signed, bytes(body))).toBe(false);
+    expect(
+      await verifyXHubSignature("s3cret", signed.slice(7), bytes(body)),
+    ).toBe(false);
+    expect(await verifyXHubSignature("s3cret", null, bytes(body))).toBe(false);
+    expect(await verifyXHubSignature("", signed, bytes(body))).toBe(false);
   });
 });

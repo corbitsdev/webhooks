@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { Hono } from "hono";
 
 import { createHookApp, MAX_BODY_BYTES } from "./hooks.js";
@@ -53,6 +54,24 @@ async function slackRequest(secret: string, body: string) {
     headers: {
       "x-slack-request-timestamp": timestamp,
       "x-slack-signature": `v0=${Buffer.from(mac).toString("hex")}`,
+    },
+  };
+}
+
+const GITHUB_HEADERS = {
+  signature: "x-hub-signature-256",
+  event: "x-github-event",
+  delivery: "x-github-delivery",
+};
+
+function githubRequest(secret: string, body: string, delivery = "del-1") {
+  return {
+    method: "POST",
+    body,
+    headers: {
+      "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+      "x-github-event": "pull_request",
+      "x-github-delivery": delivery,
     },
   };
 }
@@ -320,6 +339,64 @@ describe("createHookApp", () => {
     expect((await app.request("/api/hooks/slack", init)).status).toBe(503);
     fail = false;
     expect((await app.request("/api/hooks/slack", init)).status).toBe(202);
+  });
+
+  test("mails an x-hub-signature delivery with its event and id, once", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({
+        meta: {
+          verify: "x-hub-signature",
+          headers: GITHUB_HEADERS,
+          to: JIMMY.address,
+        },
+      }),
+      runs: [JIMMY],
+    });
+    const init = githubRequest("s3cret", `{"action":"opened"}`);
+    expect((await app.request("/api/hooks/crd_1", init)).status).toBe(202);
+    expect((await app.request("/api/hooks/crd_1", init)).status).toBe(409);
+    expect(delivered).toEqual([
+      {
+        to: JIMMY.address,
+        content: `{"event":"pull_request","deliveryId":"del-1","payload":{"action":"opened"}}`,
+        tenantId: "tnt_1",
+      },
+    ]);
+  });
+
+  test("401s an x-hub-signature delivery signed with another secret", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({
+        meta: { verify: "x-hub-signature", headers: GITHUB_HEADERS },
+      }),
+      runs: [JIMMY],
+    });
+    const res = await app.request(
+      "/api/hooks/crd_1",
+      githubRequest("other", "{}"),
+    );
+    expect(res.status).toBe(401);
+    expect(delivered).toHaveLength(0);
+  });
+
+  test("400s an x-hub-signature delivery without its id or with a body that is not JSON", async () => {
+    const { app, delivered } = mount({
+      loaded: hook({
+        meta: { verify: "x-hub-signature", headers: GITHUB_HEADERS },
+      }),
+      runs: [JIMMY],
+    });
+    const missing = await app.request(
+      "/api/hooks/crd_1",
+      githubRequest("s3cret", "{}", ""),
+    );
+    const notJson = await app.request(
+      "/api/hooks/crd_1",
+      githubRequest("s3cret", "not json"),
+    );
+    expect(missing.status).toBe(400);
+    expect(notJson.status).toBe(400);
+    expect(delivered).toHaveLength(0);
   });
 
   test("404 when the hook is ambiguous", async () => {
