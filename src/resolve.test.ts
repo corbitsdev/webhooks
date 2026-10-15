@@ -11,6 +11,38 @@ describe("parseWebhookMeta", () => {
     ).toEqual({ verify: "slack", workflow: "jimmy" });
   });
 
+  test("reads the headers an x-hub-signature hook names", () => {
+    const headers = {
+      signature: "x-hub-signature-256",
+      event: "x-github-event",
+      delivery: "x-github-delivery",
+    };
+    expect(
+      parseWebhookMeta({
+        webhook: { verify: "x-hub-signature", workflow: "triage", headers },
+      }),
+    ).toEqual({ verify: "x-hub-signature", workflow: "triage", headers });
+    expect(
+      parseWebhookMeta({ webhook: { verify: "x-hub-signature" } }),
+    ).toBeUndefined();
+    expect(
+      parseWebhookMeta({
+        webhook: {
+          verify: "x-hub-signature",
+          headers: { ...headers, event: "" },
+        },
+      }),
+    ).toBeUndefined();
+    expect(
+      parseWebhookMeta({
+        webhook: {
+          verify: "x-hub-signature",
+          headers: { ...headers, event: "x-github event" },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   test("ignores credentials that are not hooks", () => {
     expect(parseWebhookMeta(undefined)).toBeUndefined();
     expect(parseWebhookMeta({ provider: "giphy" })).toBeUndefined();

@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import type { MailDeliverer } from "./deliver.js";
-import type { LoadedHook, LiveRun } from "./resolve.js";
+import type { HookHeaders, LoadedHook, LiveRun } from "./resolve.js";
 import { pickDestination } from "./resolve.js";
 import type { ReplayStore } from "./replay.js";
 import {
@@ -10,6 +10,7 @@ import {
   verifyBearer,
   verifySlack,
   verifyStandardWebhooks,
+  verifyXHubSignature,
 } from "./verify.js";
 
 export type LoadHook = (
@@ -28,6 +29,9 @@ type HookAppOptions = {
 
 /** Largest request body accepted, checked before anything is hashed. */
 export const MAX_BODY_BYTES = 1024 * 1024;
+
+/** How long an `x-hub-signature` delivery id is held; senders redeliver within hours. */
+export const DELIVERY_ID_TTL_S = 24 * 60 * 60;
 
 export function createHookApp(opts: HookAppOptions): Hono {
   const app = new Hono();
@@ -79,6 +83,12 @@ async function handle(c: Context, opts: HookAppOptions) {
     ok = await verifyStandardWebhooks(loaded.secret, c.req.raw.headers, raw);
   } else if (loaded.meta.verify === "slack") {
     ok = await verifySlack(loaded.secret, c.req.raw.headers, raw);
+  } else if (loaded.meta.verify === "x-hub-signature") {
+    ok = await verifyXHubSignature(
+      loaded.secret,
+      c.req.raw.headers.get(loaded.meta.headers.signature),
+      raw,
+    );
   }
   if (!ok) return c.json({ error: "unauthorized" }, 401);
 
@@ -91,6 +101,12 @@ async function handle(c: Context, opts: HookAppOptions) {
     );
   } catch {
     return c.json({ error: "unsupported_body" }, 415);
+  }
+
+  if (loaded.meta.verify === "x-hub-signature") {
+    const mail = xHubMail(loaded.meta.headers, c.req.raw.headers, body);
+    if (typeof mail !== "string") return c.json({ error: mail.error }, 400);
+    body = mail;
   }
 
   const replayKey = replayClaim(loaded, c.req.raw.headers);
@@ -121,12 +137,20 @@ async function handle(c: Context, opts: HookAppOptions) {
 /**
  * Standard Webhooks senders reuse `webhook-id` across retries; Slack has no id,
  * so its signature stands in. Each key lives as long as its timestamp would
- * still verify. Bearer hooks carry no nonce and cannot be deduplicated.
+ * still verify. An `x-hub-signature` delivery id has no timestamp, so it is
+ * held for `DELIVERY_ID_TTL_S`. Bearer hooks carry no nonce and cannot be
+ * deduplicated.
  */
 function replayClaim(
   loaded: LoadedHook,
   headers: Headers,
 ): { nonce: string; expiresAt: Date } | undefined {
+  if (loaded.meta.verify === "x-hub-signature") {
+    return {
+      nonce: `x-hub-signature:${headers.get(loaded.meta.headers.delivery)}`,
+      expiresAt: new Date(Date.now() + DELIVERY_ID_TTL_S * 1000),
+    };
+  }
   const [nonce, timestamp] =
     loaded.meta.verify === "standard-webhooks"
       ? [headers.get("webhook-id"), headers.get("webhook-timestamp")]
@@ -192,6 +216,26 @@ async function forward(
     return c.json({ error: "undeliverable" }, 503);
   }
   return c.json({ ok: true, to: dest.to }, 202);
+}
+
+/**
+ * The signed body says nothing of which event it is or which delivery, so the
+ * mail wraps it with both, keeping the payload's raw JSON.
+ */
+function xHubMail(
+  names: HookHeaders,
+  headers: Headers,
+  body: string,
+): string | { error: "missing_headers" | "invalid_json" } {
+  const event = headers.get(names.event);
+  const delivery = headers.get(names.delivery);
+  if (!event || !delivery) return { error: "missing_headers" };
+  try {
+    JSON.parse(body);
+  } catch {
+    return { error: "invalid_json" };
+  }
+  return `{"event":${JSON.stringify(event)},"deliveryId":${JSON.stringify(delivery)},"payload":${body}}`;
 }
 
 function emptyToUndef(value: string | undefined): string | undefined {

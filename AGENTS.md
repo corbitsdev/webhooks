@@ -3,7 +3,7 @@
 ## Purpose
 
 `@corbits/webhooks` is signed webhook ingress for Interchange workflows. It
-owns the hook routes, the Slack, Standard Webhooks and bearer verifiers, hook
+owns the hook routes, the Slack, Standard Webhooks, X-Hub-Signature and bearer verifiers, hook
 resolution, and delivery of the body as trigger mail to a live run. It does not
 own credentials (they are Interchange credentials with `metadata.webhook`),
 storage of its own, or scheduling (`@corbits/cron`).
@@ -11,7 +11,7 @@ storage of its own, or scheduling (`@corbits/cron`).
 ## Layout
 
 - `src/routes.ts`: `createHookRoutes`, the Hono sub-app for `/api/hooks`.
-- `src/verify.ts`: the three signature verifiers.
+- `src/verify.ts`: the four signature verifiers.
 - `src/resolve.ts`: credential lookup and target run resolution.
 - `src/hooks.ts`: the request handler that ties verify, resolve and deliver.
 - `src/deliver.ts`: `createRunTriggerDeliverer` and the unroutable errors.

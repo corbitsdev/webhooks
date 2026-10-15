@@ -7,13 +7,25 @@ import {
 
 import { HOOK_VERIFY, type HookVerify } from "./verify.js";
 
-export type WebhookMeta = {
-  verify: HookVerify;
+type Destination = {
   /** Explicit onTrigger mail address. */
   to?: string;
   /** Asset or definition name; selects a live deployment when `to` is omitted. */
   workflow?: string;
 };
+
+/** Request headers carrying an `x-hub-signature` sender's signature, event name and delivery id. */
+export type HookHeaders = {
+  signature: string;
+  event: string;
+  delivery: string;
+};
+
+export type WebhookMeta = Destination &
+  (
+    | { verify: Exclude<HookVerify, "x-hub-signature"> }
+    | { verify: "x-hub-signature"; headers: HookHeaders }
+  );
 
 export type LoadedHook = {
   credentialId: string;
@@ -40,11 +52,35 @@ export function parseWebhookMeta(metadata: unknown): WebhookMeta | undefined {
   const to = typeof hook["to"] === "string" ? hook["to"].trim() : "";
   const workflow =
     typeof hook["workflow"] === "string" ? hook["workflow"].trim() : "";
-  return {
-    verify,
+  const destination: Destination = {
     ...(to !== "" ? { to } : {}),
     ...(workflow !== "" ? { workflow } : {}),
   };
+  if (verify !== "x-hub-signature") return { verify, ...destination };
+  const headers = parseHookHeaders(hook["headers"]);
+  return headers && { verify, headers, ...destination };
+}
+
+// RFC 7230 token, the rule `Headers.get` enforces.
+const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function parseHookHeaders(value: unknown): HookHeaders | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const rec = value as Record<string, unknown>;
+  const [signature, event, delivery] = [
+    rec["signature"],
+    rec["event"],
+    rec["delivery"],
+  ].map((name) => (typeof name === "string" ? name.trim() : ""));
+  if (
+    !signature ||
+    !event ||
+    !delivery ||
+    ![signature, event, delivery].every((name) => HEADER_NAME.test(name))
+  ) {
+    return undefined;
+  }
+  return { signature, event, delivery };
 }
 
 function isHookVerify(value: string): value is HookVerify {

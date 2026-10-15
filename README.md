@@ -1,12 +1,12 @@
 # @corbits/webhooks
 
-Signed webhook ingress for Interchange workflows: verifies a Slack, Standard Webhooks or bearer request against a hub credential, then delivers the body as trigger mail to a live workflow run. A Corbits hub module, mounted as Hono routes on the Interchange hub (Interchange's multi-tenant control plane, where a principal is an identity and a grant is a permission it holds) and backed by its Postgres.
+Signed webhook ingress for Interchange workflows: verifies a Slack, Standard Webhooks, X-Hub-Signature or bearer request against a hub credential, then delivers the body as trigger mail to a live workflow run. A Corbits hub module, mounted as Hono routes on the Interchange hub (Interchange's multi-tenant control plane, where a principal is an identity and a grant is a permission it holds) and backed by its Postgres.
 
 ## Why @corbits/webhooks?
 
 1. **Secrets stay in the hub.** Each hook is an ordinary Interchange credential with `metadata.webhook`. The only thing this package stores is a short-lived table of seen delivery ids.
 2. **Runs never borrow a person's authority.** The workflow runs as its own run principal (the identity Interchange derives for each run) through the hub's mail-triggered grant path, never as the credential owner.
-3. **Three verifiers, no unsigned mode.** Slack signatures, Standard Webhooks HMAC and bearer tokens. A credential without a verifier matches no hook.
+3. **Four verifiers, no unsigned mode.** Slack signatures, Standard Webhooks HMAC, X-Hub-Signature HMAC (GitHub, Bitbucket Data Center) and bearer tokens. A credential without a verifier matches no hook.
 
 Use it to start workflows from third-party events. It does not fire on a schedule; `@corbits/cron` does, through a deliverer of the same shape.
 
@@ -35,21 +35,38 @@ The `@intx/*` peers are `^0.4.0`, `drizzle-orm` is `^0.45.1`, `hono` is `^4.11.9
 | `POST /api/hooks/:tenantId/:name` | Credential name, scoped to the tenant.                                        |
 | `POST /api/hooks`                 | `x-webhook-hook` header or `?hook=`; tenant from `x-tenant-id` or `?tenant=`. |
 
-Responses: `202` delivered, `200 { challenge }` for Slack `url_verification`, `401` bad signature, `404` unknown hook (misses and name collisions look the same), `409` more than one live run matches, `503` no live run or delivery failed, `500` credential lookup failed.
+Responses: `202` delivered, `200 { challenge }` for Slack `url_verification`, `400` an X-Hub-Signature delivery without its event or id, or not JSON, `401` bad signature, `404` unknown hook (misses and name collisions look the same), `409` more than one live run matches, `503` no live run or delivery failed, `500` credential lookup failed.
 
 ### `metadata.webhook`
 
-| Field      | Value                                                          |
-| ---------- | -------------------------------------------------------------- |
-| `verify`   | `"bearer"`, `"standard-webhooks"` or `"slack"`. Required.      |
-| `workflow` | Name of a live deployment's definition or asset in the tenant. |
-| `to`       | A live run address in the tenant, instead of `workflow`.       |
+| Field      | Value                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `verify`   | `"bearer"`, `"standard-webhooks"`, `"slack"` or `"x-hub-signature"`. Required.                                           |
+| `headers`  | `{ signature, event, delivery }`: the request headers carrying each. Required with `x-hub-signature`, ignored otherwise. |
+| `workflow` | Name of a live deployment's definition or asset in the tenant.                                                           |
+| `to`       | A live run address in the tenant, instead of `workflow`.                                                                 |
 
 With neither set, the credential name is matched against definition and asset names, then the tenant's only live run. A live run has status `deployed` or `running`.
 
 With `standard-webhooks`, the secret is base64-decoded after stripping an optional `whsec_` prefix, as the spec requires. An unprefixed secret that is valid base64 is tried decoded first, then as raw bytes, which is how 0.1 read it; one that is not base64 is only tried raw. An empty secret never verifies, under any scheme.
 
-A replayed delivery gets `409`. Standard Webhooks deliveries are keyed on the credential and `webhook-id`, Slack on the credential and signature, each kept until its timestamp leaves the ±300s window. The seen-set is the `replay` table in the `webhooks` schema, created by `runWebhookMigrations` (see [Using with Interchange](#using-with-interchange)), so every replica sharing the database rejects the replay. A failed delivery releases its key so the sender's retry goes through. If the hub crashes between claiming a key and forwarding the delivery, the key stays held until it expires with its timestamp window, so the sender's retries get `409` until then. Bearer requests carry no id and are not deduplicated.
+With `x-hub-signature`, the `signature` header must be `sha256=` and the hex HMAC-SHA256 of the raw body under the secret. A delivery without its `event` or `delivery` header, or whose body is not JSON, gets `400`. The mail is `{"event":…,"deliveryId":…,"payload":<the raw body>}`, since the body alone does not say which event it is. GitHub sends `x-hub-signature-256`, `x-github-event` and `x-github-delivery`; Bitbucket Data Center sends `x-hub-signature`, `x-event-key` and `x-request-id`:
+
+```json
+{
+  "webhook": {
+    "verify": "x-hub-signature",
+    "workflow": "my-workflow",
+    "headers": {
+      "signature": "x-hub-signature-256",
+      "event": "x-github-event",
+      "delivery": "x-github-delivery"
+    }
+  }
+}
+```
+
+A replayed delivery gets `409`. Standard Webhooks deliveries are keyed on the credential and `webhook-id`, Slack on the credential and signature, each kept until its timestamp leaves the ±300s window; X-Hub-Signature deliveries on the credential and delivery id, kept for 24 hours. The seen-set is the `replay` table in the `webhooks` schema, created by `runWebhookMigrations` (see [Using with Interchange](#using-with-interchange)), so every replica sharing the database rejects the replay. A failed delivery releases its key so the sender's retry goes through. If the hub crashes between claiming a key and forwarding the delivery, the key stays held until it expires, so the sender's retries get `409` until then; for Standard Webhooks and Slack that is the timestamp window, for X-Hub-Signature the full 24 hours, since its delivery id carries no timestamp. Bearer requests carry no id and are not deduplicated.
 
 Signatures are checked over the raw request bytes, and the body is forwarded unchanged. Bodies over 1 MiB get `413`; a verified body that is not UTF-8 gets `415`. Bot tokens for chat integrations belong in the workflow's `credentialBindings`, not in the signing secret.
 
