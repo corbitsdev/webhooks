@@ -60,7 +60,7 @@ async function handle(c: Context, opts: HookAppOptions) {
   }
 
   const tenantHint =
-    (pathTenant?.startsWith("tnt_") ? pathTenant : undefined) ??
+    pathTenant ??
     emptyToUndef(c.req.header("x-tenant-id")) ??
     emptyToUndef(c.req.query("tenant"));
 

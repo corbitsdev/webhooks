@@ -99,7 +99,7 @@ export const testCredentialCipher = createEnvKeyCredentialCipher(
 export function recordingRouter() {
   const mail: Parameters<HookRouter["routeMail"]>[] = [];
   const router: HookRouter = {
-    routeMail: (...args) => {
+    routeMail: async (...args) => {
       mail.push(args);
       return true;
     },

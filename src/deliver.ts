@@ -83,6 +83,8 @@ export function createRunTriggerDeliverer(
           throw new Error("destination is not a workflow deployment");
         case "materialized":
           break;
+        case "notReady":
+          throw new Error("destination run grants are not ready");
         default:
           grants satisfies never;
       }

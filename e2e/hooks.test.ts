@@ -31,11 +31,11 @@ import {
   type TestDb,
 } from "./helpers.js";
 
-const TENANT = "tnt_e2e";
+const TENANT = "tnte2e";
 const CREATOR = "prn_creator";
 const DEFINITION = "wfd_hook";
 const DEPLOYMENT = "run_hook";
-const ADDRESS = "run_hook@tnt_e2e.example.test";
+const ADDRESS = "run_hook@tnte2e.example.test";
 const HOOK = "crd_hook";
 const SECRET = "whsec_c2VjcmV0LWtleS1ieXRlcw==";
 
@@ -80,6 +80,7 @@ async function seedDeployment(db: TestDb["db"]): Promise<void> {
     anchorRunId: DEPLOYMENT,
     definitionId: DEFINITION,
     address: ADDRESS,
+    publicKey: "pk_hook",
     status: "deployed",
   });
   await db.insert(provider).values({
@@ -230,10 +231,10 @@ describe.skipIf(!harnessDbAvailable())(
     test("the tenant-scoped name path resolves only inside that tenant", async () => {
       const recorded = recordingRouter();
       const app = mountHookRoutes({ db: db(), router: recorded.router });
-      await seedTenant(db(), "tnt_other");
+      await seedTenant(db(), "tntother");
       const body = `{"text":"hi"}`;
 
-      const miss = await app.request("/api/hooks/tnt_other/my-hook", {
+      const miss = await app.request("/api/hooks/tntother/my-hook", {
         method: "POST",
         headers: await standardWebhooksHeaders(body),
         body,
