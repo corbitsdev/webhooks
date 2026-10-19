@@ -42,7 +42,7 @@ async function durableSystemSender() {
 function recordingRouter() {
   const calls: Parameters<HookRouter["routeMail"]>[] = [];
   const router: HookRouter = {
-    routeMail: (...args) => {
+    routeMail: async (...args) => {
       calls.push(args);
       return true;
     },
@@ -165,7 +165,7 @@ describe("createRunTriggerDeliverer", () => {
   test("a dead run address fails with its run identity, not a bare string", async () => {
     const sender = await durableSystemSender();
     const recorded = recordingRouter();
-    recorded.router.routeMail = () => false;
+    recorded.router.routeMail = async () => false;
     const error = await deliverer(recorded.router, sender.sender)
       .to(ADDRESS, "tick", "tnt_1", undefined)
       .then(
